@@ -42,11 +42,25 @@ proc test {.async.} =
 ```
 
 
+## `asyncIters` vs `asyncstreams`
+
+[`std/asyncstreams`][asyncstreams] may look similar to this library, but they solve different
+problems. Async procedures communicating via a `FutureStream` run as independently as possible.
+Sometimes this is the right thing, but sometimes you want finer control. For example, a consumer
+might decide to abort iteration, and it would like to stop the producer as well. Moreover, it is
+important to stop it immediately so that no extraneous data is produced. In this case,
+`FutureStream` is a bad solution. On the other hand, `asyncIters` were designed with this scenario
+in mind.
+
+[asyncstreams]: https://nim-lang.org/docs/asyncstreams.html
+
+
 ## Limitations
 
 * With regular Nim iterators, you supply arguments on each step:
 
   ```nim
+  # Not async.
   iterator double(n: int): int {.closure.} = # `{.inline.}` works, too.
     while true:
       yield n shl 1
@@ -80,10 +94,10 @@ proc test {.async.} =
   Unfortunately, async iterators implemented in this library do not support such usage pattern.
   Parameterized iterators are not allowed. You can provide arguments only at the start, before
   iteration begins, by wrapping the iterator in a closure (see the synopsis for an example).
-  I’d like to add this feature, but it requires reimplementing [`asyncdispatch.async`][async]
+  I’d like to add this feature, but it requires reimplementing [`asyncdispatch.async`][asyncmacro]
   from scratch — that’s an interesting task, but not today, sorry.
 
-  [async]: https://github.com/nim-lang/Nim/blob/version-1-6/lib/pure/asyncmacro.nim
+  [asyncmacro]: https://github.com/nim-lang/Nim/blob/version-1-6/lib/pure/asyncmacro.nim
 
 * In regular `{.async.}` procedures, you must not invoke templates or macros that contain a `return`
   statement:
