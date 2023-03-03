@@ -1,0 +1,55 @@
+%YAML 1.1
+---
+name: Process Nim
+on:
+  push:
+    branches: [master]
+    paths:
+    - .github/workflows/**
+    - '*.nimble'
+    - '**.nim'
+    - '**.nims'
+    - '**nim.cfg'
+  workflow_dispatch: { }
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        nim-version: ['1.4.0', '1.4.x', '1.6.0', '1.6.x', stable]
+    name: Test on ${{ matrix.nim-version }}
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Cache Nim toolchain
+      id: cache-nim
+      uses: actions/cache@v3
+      with:
+        path: |-
+          ~/.choosenim/toolchains/
+          ~/.choosenim/current
+          ~/.nimble/bin/
+        key: ${{ runner.os }}-${{ runner.arch }}-Nim-${{ matrix.nim-version }}
+
+    - name: Set up Nim toolchain
+      if: steps.cache-nim.outputs.cache-hit != 'true'
+      uses: jiro4989/setup-nim-action@v1
+      with:
+        nim-version: ${{ matrix.nim-version }}
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Check out the project
+      uses: actions/checkout@v3
+
+    - name: Run tests
+      run: |-
+        export PATH="$PATH:$HOME/.nimble/bin"
+        nimble -y --verbose test \
+          --verbosity=2 \
+          --warning[GcUnsafe]=off \
+          --hint[GlobalVar]=off --hint[Link]=off --hint[MsgOrigin]=off
