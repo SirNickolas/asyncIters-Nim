@@ -2,14 +2,16 @@
 
 ```nim
 from   std/asyncdispatch import sleepAsync, waitFor
-import asyncIters # Imports `async` and `std/asyncfutures` as well.
+import asyncIters # Imports `async`, `await`, and `std/asyncfutures` as well.
 
 func countUpAsync(a, b: int): AsyncIterator[int] =
-  result = iterator: Future[int] {.asyncIter.} =
+  iterator countUpAsync: Future[int] {.asyncIter.} =
     for i in a .. b:
       echo "Generating..."
       await sleepAsync 50 # You can await.
       yieldAsync i        # And you can yield.
+
+  result = countUpAsync
 
 proc test {.async.} =
   for i in awaitIter countUpAsync(1, 5):

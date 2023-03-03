@@ -1,21 +1,35 @@
-from   std/asyncdispatch import async
-import std/asyncfutures except callSoon # `asyncdispatch` provides an alternative implementation.
+from   std/asyncdispatch import nil
+from   std/asyncfutures import nil
 import std/macros
 
-export async, asyncfutures
+export asyncdispatch.async
+when declared asyncdispatch.await:
+  export asyncdispatch.await
+export asyncfutures except callSoon # `asyncdispatch` provides an alternative implementation.
 
-type AsyncIterator*[T] = proc (body: proc (item: T): Future[uint32]): Future[uint32]
+type
+  CustomAsyncIterator*[T; F] = proc (body: proc (item: T): F): F
+    ## Type of async iterators after they are processed. Do not make any assumptions about
+    ## its definition — it is an implementation detail. Just use `CustomAsyncIterator[T, F]`.
+  AsyncIterator*[T] = CustomAsyncIterator[T, asyncfutures.Future[uint32]]
+    ## Type of async iterators after they are processed. Do not make any assumptions about
+    ## its definition — it is an implementation detail. Just use `AsyncIterator[T]`.
 
 func copyLineInfoTo(info, arg: NimNode): NimNode =
   arg.copyLineInfo info
   arg
 
-func morphInto(prototype: NimNode; kind: NimNodeKind; firstChildIndex = 0.Natural): NimNode =
-  ## Create a new node and add to it all children of `prototype` starting from `firstChildIndex`.
+func morphInto(prototype: NimNode; kind: NimNodeKind; indices: Slice[int]): NimNode =
+  ## Create a new node of type `kind` and add `prototype[indices]` as its children.
 
   result = kind.newNimNode prototype
-  for i in firstChildIndex ..< prototype.len:
+  for i in indices:
     result.add prototype[i]
+
+func morphInto(prototype: NimNode; kind: NimNodeKind; start = 0): NimNode =
+  ## Create a new node of type `kind` and add `prototype[start ..^ 1]` as its children.
+
+  prototype.morphInto(kind, start ..< prototype.len)
 
 func checkReturnType(params: NimNode): NimNode =
   ## Extract the return type from iterator’s params and validate it’s some kind of `Future[T]`.
@@ -46,7 +60,7 @@ func desugarYields(iterBody, loopBodySym: NimNode) =
               if child.len == 2:
                 child[1] # A single yielded value.
               else:
-                child.morphInto(nnkPar, 1) # Collect values into a tuple.
+                child.morphInto(nnkTupleConstr, 1) # Collect values into a tuple.
             )
           elif callee.eqIdent "yieldAsyncFrom":
             if child.len != 2:
@@ -86,11 +100,107 @@ macro asyncIter*(iterDef): untyped =
   result.addPragma ident"async" # An open symbol to allow custom `async` implementations.
   result.body.desugarYields bodySym
 
+  when defined asyncIters_debugAsync:
+    echo result.repr
+
+template breakAsync* {.error: "breakAsync outside of async loop".} = discard
+  ## Like `break` but for async loops.
+
+template continueAsync* {.error: "continueAsync outside of async loop".} = discard
+  ## Like `continue` but for async loops.
+
+template asyncLoopMagic(body): untyped = body
+  ## A no-op transformer used to mark `return` statements that have already been processed.
+
+func assignFromTuple(targets, source: NimNode): NimNode =
+  ## Create a let section that binds identifiers `targets` to the elements of tuple `source`.
+
+  let section = nnkLetSection.newNimNode
+  let empty = newEmptyNode()
+
+  func assignFrom(targets, source: NimNode) =
+    # Nim does not support recursive tuple unpacking so we have to linearize them.
+    let varTuple = nnkVarTuple.newNimNode
+    section.add varTuple
+    for target in targets:
+      varTuple.add:
+        if target.kind not_in {nnkPar, nnkTupleConstr}:
+          target
+        else:
+          let aux = genSym(ident = "tuple")
+          target.assignFrom aux
+          aux
+    varTuple.add empty, source
+
+  targets.assignFrom source
+  section
+
+func prepareLoopVarAndBody(loopVarsAndBody: NimNode): (NimNode, NimNode, NimNode) =
+  ## Extract loop variable and body from the `Arglist`. If there are several variables, create
+  ## a tuple parameter and generate code that unpacks it.
+
+  loopVarsAndBody.expectMinLen 1
+  let
+    body = loopVarsAndBody[^1]
+    loopVars =
+      if loopVarsAndBody.len == 2:
+        let loopVar = loopVarsAndBody[0]
+        if loopVar.kind not_in {nnkPar, nnkTupleConstr}: # A single loop variable.
+          return (loopVar, body, body)
+        loopVar
+      else: # Implicitly parenthized.
+        loopVarsAndBody.morphInto(nnkTupleConstr, 0 ..< loopVarsAndBody.len - 1)
+    loopTuple = genSym(nskParam, "item")
+  # Multiple loop variables (need to unpack a tuple).
+  (
+    loopTuple,
+    nnkStmtList.newNimNode(body).add(loopVars.assignFromTuple loopTuple, body),
+    body,
+  )
+
+macro awaitEach*(iter: CustomAsyncIterator; loopVarsAndBody: varargs[untyped]) =
+  ## Iterate over an async iterator. Like regular `await`, this can only occur in procedures
+  ## marked with `{.async.}` or `{.asyncIter.}`.
+
+  let
+    (futureType, yieldType) = block:
+      let params = iter.getTypeImpl[0]
+      (params[0], params[1][1][0][1][1])
+    (loopVar, body, originalBody) = loopVarsAndBody.prepareLoopVarAndBody
+    bodyProcSym = genSym(nskProc, "asyncForBody") # For better stack traces.
+  result = newStmtList(
+    newProc(
+      name = bodyProcSym,
+      params = [futureType, newIdentDefs(loopVar, yieldType)],
+      pragmas = nnkPragma.newNimNode.add ident"async",
+      body = body,
+    ),
+    nnkDiscardStmt.newNimNode.add ident"await".newCall iter.newCall bodyProcSym,
+  )
+  # TODO: Process `originalBody`.
+
+  when defined asyncIters_debugAwait:
+    echo result.repr
+
+macro awaitEach*(iter: typed; loopVarsAndBody: varargs[untyped]) =
+  ## An overload that emits a helpful error message when `iter` has incorrect type.
+
+  error "awaitEach expects an async iterator, " & iter.getTypeInst.repr & " given", iter
+
 macro awaitIter*(loop: ForLoopStmt) =
   ## Iterate over an async iterator. Like regular `await`, this can only occur in procedures
   ## marked with `{.async.}` or `{.asyncIter.}`.
 
-  let invocation = loop[1]
+  let invocation = loop[^2] # awaitIter(...)
   invocation.expectLen 2
-  loop[1] = invocation[1]
-  loop
+  # Transform the loop into `awaitEach` call.
+  result = nnkCommand.newNimNode(loop).add(bindSym"awaitEach", invocation[1])
+  for i in 0 ..< loop.len - 2:
+    let loopVar = loop[i]
+    result.add:
+      if loopVar.kind != nnkVarTuple:
+        loopVar
+      else:
+        loopVar[^1].expectKind nnkEmpty # A type annotation (never occurs in a `VarTuple`).
+        loopVar.morphInto(nnkTupleConstr, 0 ..< loopVar.len - 1)
+  result.add loop[^1] # Body.
