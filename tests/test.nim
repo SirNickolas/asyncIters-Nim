@@ -14,7 +14,7 @@ test "can declare an async iterator":
   let unnamed0 {.used.} = iterator: Future[int] {.asyncIter.} = discard
   let unnamed1 {.used.} = iterator (): Future[int] {.asyncIter.} = discard
 
-test "can call `awaitIter` and `awaitEach`":
+test "can iterate over an async iterator":
   iterator produce2: Future[int] {.asyncIter.} =
     yieldAsync 2
     yieldAsync 2
@@ -24,10 +24,7 @@ test "can call `awaitIter` and `awaitEach`":
     for x in awaitIter produce2:
       check x == 2
       n += 1
-    awaitEach produce2, x:
-      check x == 2
-      n += 1
-  check n == 4
+  check n == 2
 
 test "async iterator can close over variables in its scope":
   func countUpTo(n: int): AsyncIterator[int] =
@@ -41,9 +38,7 @@ test "async iterator can close over variables in its scope":
   runAsync:
     for x in awaitIter countUpTo 5:
       sum += x
-    awaitEach countUpTo 5, x:
-      sum += x
-  check sum == 20
+  check sum == 10
 
 test "`awaitIter` can unpack simple tuples":
   iterator indexedStrings: Future[(int, string)] {.asyncIter.} =
@@ -76,6 +71,7 @@ test "`awaitIter` can unpack simple tuples":
 
 test "`awaitIter` can unpack a 1-element tuple":
   iterator wrap5: Future[(int, )] {.asyncIter.} =
+    check not compiles yieldAsync 5
     yieldAsync (5, )
 
   var n = 0
@@ -90,45 +86,3 @@ test "`awaitIter` can unpack a 1-element tuple":
       check five == 5
       n += 1
   check n == 3
-
-test "`awaitEach` can unpack deeply nested tuples":
-  iterator it: Future[((string, int), float, (seq[string], (bool, )))] {.asyncIter.} =
-    yieldAsync ("a", 1), 2.0, (@["b", "c"], (true, ))
-
-  var n = 0
-  runAsync:
-    awaitEach it, t:
-      check t == (("a", 1), 2.0, (@["b", "c"], (true, )))
-      n += 1
-    awaitEach it, a, b, c:
-      check a == ("a", 1)
-      check b == 2.0
-      check c == (@["b", "c"], (true, ))
-      n += 1
-    awaitEach it, (a, b, c):
-      check a == ("a", 1)
-      check b == 2.0
-      check c == (@["b", "c"], (true, ))
-      n += 1
-    awaitEach it, (a, b), c, (d, e):
-      check a == "a"
-      check b == 1
-      check c == 2.0
-      check d == ["b", "c"]
-      check e == (true, )
-      n += 1
-    awaitEach it, (a, b), c, (d, (e)):
-      check a == "a"
-      check b == 1
-      check c == 2.0
-      check d == ["b", "c"]
-      check e == true
-      n += 1
-    awaitEach it, (a, b), c, (d, (e, )):
-      check a == "a"
-      check b == 1
-      check c == 2.0
-      check d == ["b", "c"]
-      check e == true
-      n += 1
-  check n == 6

@@ -5,6 +5,7 @@
   .. _std/asyncdispatch: https://nim-lang.org/docs/asyncdispatch.html
 ]##
 runnableExamples:
+  # `async`, `await`, and `std/asyncfutures` are imported as well.
   from   std/asyncdispatch import sleepAsync, waitFor
 
   func countUpAsync(a, b: int): AsyncIterator[int] =
@@ -78,7 +79,7 @@ func desugarYields(iterBody, loopBodySym: NimNode) =
       if child.kind in nnkCallKinds:
         let callee = child[0]
         let (sink, arg) =
-          if callee.eqIdent "yieldAsync":
+          if callee.eqIdent"yieldAsync":
             if child.len == 1:
               error "need a value to yield", child
             (loopBodySym, # Will invoke loop body with the yielded values.
@@ -87,7 +88,7 @@ func desugarYields(iterBody, loopBodySym: NimNode) =
               else:
                 child.morphInto(nnkTupleConstr, 1) # Collect values into a tuple.
             )
-          elif callee.eqIdent "yieldAsyncFrom":
+          elif callee.eqIdent"yieldAsyncFrom":
             if child.len != 2:
               error "need a single async iterator to yield from", child
             (child[1], loopBodySym) # Will invoke another iterator with the loop body.
@@ -127,12 +128,6 @@ macro asyncIter*(iterDef: untyped): untyped =
 
   when defined asyncIters_debugAsync:
     echo result.repr
-
-template breakAsync* {.error: "breakAsync outside of async loop".} = discard
-  ## Like `break` but for async loops.
-
-template continueAsync* {.error: "continueAsync outside of async loop".} = discard
-  ## Like `continue` but for async loops.
 
 template asyncLoopMagic(body: untyped): untyped = body
   ## A no-op transformer used to mark `return` statements that have already been processed.
@@ -183,7 +178,7 @@ func prepareLoopVarAndBody(loopVarsAndBody: NimNode): (NimNode, NimNode, NimNode
     body,
   )
 
-macro awaitEach*(iter: CustomAsyncIterator; loopVarsAndBody: varargs[untyped]) =
+macro awaitEach(iter: CustomAsyncIterator; loopVarsAndBody: varargs[untyped]) =
   ## Iterate over an async iterator. Like regular `await`, this can only occur in procedures
   ## marked with `{.async.}` or `{.asyncIter.}`.
 
@@ -200,17 +195,21 @@ macro awaitEach*(iter: CustomAsyncIterator; loopVarsAndBody: varargs[untyped]) =
       pragmas = nnkPragma.newNimNode.add ident"async",
       body = body,
     ),
-    nnkDiscardStmt.newNimNode.add ident"await".newCall iter.newCall bodyProcSym,
+    # `discard await iter asyncForBody`
+    nnkDiscardStmt.newNimNode.add nnkCommand.newTree(
+      iter.copyLineInfoTo ident"await",
+      nnkCommand.newTree(iter, bodyProcSym),
+    ),
   )
   # TODO: Process `originalBody`.
 
   when defined asyncIters_debugAwait:
     echo result.repr
 
-macro awaitEach*(iter: typed; loopVarsAndBody: varargs[untyped]) =
+macro awaitEach(iter: typed; loopVarsAndBody: varargs[untyped]) =
   ## An overload that emits a helpful error message when `iter` has incorrect type.
 
-  error "awaitEach expects an async iterator, got" & iter.getTypeInst.repr, iter
+  error "awaitIter expects an async iterator, got " & iter.getTypeInst.repr, iter
 
 macro awaitIter*(loop: ForLoopStmt) =
   ## Iterate over an async iterator. Like regular `await`, this can only occur in procedures
