@@ -21,6 +21,8 @@ proc test {.async.} =
 waitFor test()
 ```
 
+[API documentation](https://sirnickolas.github.io/asyncIters/asyncIters)
+
 Because `yield` in async procedures is reserved to mean, “wait for a future to finish but do not
 perform error handling,” we had to introduce a new control structure, `yieldAsync`. Its
 counterpart `yieldAsyncFrom` allows to delegate iteration to another async iterator:
@@ -42,6 +44,9 @@ proc test {.async.} =
   for x in awaitIter evensAndOdds(0, 9):
     echo x # => 0 2 4 6 8 1 3 5 7 9
 ```
+
+`yieldAsyncFrom another` is semantically equivalent to `for x in awaitIter another: yieldAsync x`
+but is more efficient.
 
 
 ## `asyncIters` vs `asyncstreams`
