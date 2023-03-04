@@ -40,14 +40,33 @@ test "async iterator can close over variables in its scope":
       sum += x
   check sum == 10
 
+test "can yield from another async iterator":
+  func countUpAsync(a, b: int; step = 1): auto =
+    result = iterator: Future[int] {.asyncIter.} =
+      for i in countUp(a, b, step):
+        yieldAsync i
+
+  func evensAndOdds(a, b: int): auto =
+    let evens = countUpAsync(a, b, 2)
+    let odds  = countUpAsync(a + 1, b, 2)
+    result = iterator: Future[int] {.asyncIter.} =
+      yieldAsyncFrom evens
+      yieldAsyncFrom odds
+
+  var data: seq[int]
+  runAsync:
+    for x in awaitIter evensAndOdds(0, 9):
+      data &= x
+  check data == [0, 2, 4, 6, 8, 1, 3, 5, 7, 9]
+
 test "`awaitIter` can unpack simple tuples":
   iterator indexedStrings: Future[(int, string)] {.asyncIter.} =
     yieldAsync 1, "test"
     yieldAsync (1, "test")
 
-  iterator indexedPositions: Future[(int, tuple[x, y: float])] {.asyncIter.} =
-    yieldAsync 1, (2.0, 4.0)
-    yieldAsync (1, (2.0, 4.0))
+  iterator indexedPositions: Future[(int, string, tuple[x, y: float])] {.asyncIter.} =
+    yieldAsync 1, "here", (2.0, 4.0)
+    yieldAsync (1, "here", (2.0, 4.0))
 
   var n = 0
   runAsync:
@@ -62,8 +81,9 @@ test "`awaitIter` can unpack simple tuples":
       check i == 1
       check s == "test"
       n += 1
-    for i, (x, y) in awaitIter indexedPositions:
+    for i, s, (x, y) in awaitIter indexedPositions:
       check i == 1
+      check s == "here"
       check x == 2.0
       check y == 4.0
       n += 1
