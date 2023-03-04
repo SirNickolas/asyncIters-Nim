@@ -132,51 +132,35 @@ macro asyncIter*(iterDef: untyped): untyped =
 template asyncLoopMagic(body: untyped): untyped = body
   ## A no-op transformer used to mark `return` statements that have already been processed.
 
-func assignFromTuple(targets, source: NimNode): NimNode =
-  ## Create a let section that binds identifiers `targets` to the elements of tuple `source`.
-
-  let section = nnkLetSection.newNimNode
-  let empty = newEmptyNode()
-
-  func assignFrom(targets, source: NimNode) =
-    # Nim does not support recursive tuple unpacking so we have to linearize them.
-    let varTuple = nnkVarTuple.newNimNode
-    section.add varTuple
-    for target in targets:
-      varTuple.add:
-        if target.kind not_in {nnkPar, nnkTupleConstr}:
-          target
-        else:
-          let aux = genSym(ident = "tuple")
-          target.assignFrom aux
-          aux
-    varTuple.add empty, source
-
-  targets.assignFrom source
-  section
-
 func prepareLoopVarAndBody(loopVarsAndBody: NimNode): (NimNode, NimNode, NimNode) =
   ## Extract loop variable and body from the `Arglist`. If there are several variables, create
   ## a tuple parameter and generate code that unpacks it.
 
-  loopVarsAndBody.expectMinLen 1
   let
+    tupleParam = genSym(nskParam, "item")
+    section = nnkLetSection.newNimNode
     body = loopVarsAndBody[^1]
-    loopVars =
-      if loopVarsAndBody.len == 2:
-        let loopVar = loopVarsAndBody[0]
-        if loopVar.kind not_in {nnkPar, nnkTupleConstr}: # A single loop variable.
-          return (loopVar, body, body)
-        loopVar
-      else: # Implicitly parenthized.
-        loopVarsAndBody.morphInto(nnkTupleConstr, 0 ..< loopVarsAndBody.len - 1)
-    loopTuple = genSym(nskParam, "item")
-  # Multiple loop variables (need to unpack a tuple).
-  (
-    loopTuple,
-    nnkStmtList.newNimNode(body).add(loopVars.assignFromTuple loopTuple, body),
-    body,
-  )
+  if loopVarsAndBody.len == 2:
+    let loopVar = loopVarsAndBody[0]
+    if loopVar.kind != nnkVarTuple: # A single loop variable.
+      return (loopVar, body, body)
+    section.add loopVar.add tupleParam # A single destructuring statement.
+  else:
+    # Multiple loop variables (need to unpack a tuple). Nim does not currently support recursive
+    # tuple destructuring so we cannot just morph `loopVarsAndBody` into `nnkVarTuple`.
+    let rootVarTuple = nnkVarTuple.newNimNode
+    section.add rootVarTuple
+    for i in 0 ..< loopVarsAndBody.len - 1:
+      let loopVar = loopVarsAndBody[i]
+      rootVarTuple.add:
+        if loopVar.kind != nnkVarTuple:
+          loopVar
+        else:
+          let aux = genSym(ident = "tuple")
+          section.add loopVar.add aux
+          aux
+    rootVarTuple.add newEmptyNode(), tupleParam
+  (tupleParam, newStmtList(section, body), body)
 
 macro awaitEach(iter: CustomAsyncIterator; loopVarsAndBody: varargs[untyped]) =
   ## Iterate over an async iterator. Like regular `await`, this can only occur in procedures
@@ -219,12 +203,6 @@ macro awaitIter*(loop: ForLoopStmt) =
   invocation.expectLen 2
   # Transform the loop into `awaitEach` call.
   result = nnkCommand.newNimNode(loop).add(bindSym"awaitEach", invocation[1])
-  for i in 0 ..< loop.len - 2:
-    let loopVar = loop[i]
-    result.add:
-      if loopVar.kind != nnkVarTuple:
-        loopVar
-      else:
-        loopVar[^1].expectKind nnkEmpty # A type annotation (never occurs in a `VarTuple`).
-        loopVar.morphInto(nnkTupleConstr, 0 ..< loopVar.len - 1)
+  for i in 0 ..< loop.len - 2: # Loop variables.
+    result.add loop[i]
   result.add loop[^1] # Body.
