@@ -10,15 +10,19 @@ on:
     - '**.nim'
     - '**.nims'
     - '**nim.cfg'
-  workflow_dispatch: { }
+    - '**nimdoc.cfg'
+  workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: nim
+  cancel-in-progress: true
 defaults:
   run:
     shell: bash
 
 jobs:
-  test:
+  nim:
     strategy:
       matrix:
         nim-version: ['1.4.0', '1.4.x', '1.6.0', '1.6.x', stable]
@@ -27,29 +31,66 @@ jobs:
 
     steps:
     - name: Cache Nim toolchain
-      id: cache-nim
+      id: nim-cache
       uses: actions/cache@v3
       with:
+        key: ${{ runner.os }}-${{ runner.arch }}-Nim-${{ matrix.nim-version }}
         path: |-
           ~/.choosenim/toolchains/
           ~/.choosenim/current
           ~/.nimble/bin/
-        key: ${{ runner.os }}-${{ runner.arch }}-Nim-${{ matrix.nim-version }}
 
     - name: Set up Nim toolchain
-      if: steps.cache-nim.outputs.cache-hit != 'true'
+      if: steps.nim-cache.outputs.cache-hit != 'true'
       uses: jiro4989/setup-nim-action@v1
       with:
         nim-version: ${{ matrix.nim-version }}
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Adjust PATH
+      run: echo ~/.nimble/bin >> "$GITHUB_PATH"
+
     - name: Check out the project
       uses: actions/checkout@v3
 
     - name: Run tests
-      run: |-
-        export PATH="$PATH:$HOME/.nimble/bin"
-        nimble -y --verbose test \
-          --verbosity=2 \
-          --warning[GcUnsafe]=off \
-          --hint[GlobalVar]=off --hint[Link]=off --hint[MsgOrigin]=off
+      run: >-
+        nimble -y --verbose test
+        --verbosity=2
+        --warning[GcUnsafe]=off
+        --hint[GlobalVar]=off
+        --hint[Link]=off
+        --hint[MsgOrigin]=off
+
+    - name: Generate API docs
+      if: matrix.nim-version == 'stable'
+      run: >-
+        nimble doc src/asyncIters.nim
+        --git.url="${{ github.server_url }}/${{ github.repository }}"
+        --git.commit="${{ github.ref_name }}"
+
+    - name: Set up Pages
+      if: matrix.nim-version == 'stable'
+      uses: actions/configure-pages@v3
+
+    - name: Upload API docs
+      if: matrix.nim-version == 'stable'
+      uses: actions/upload-pages-artifact@v1
+      with:
+        path: htmldocs/
+
+  deploy-pages:
+    name: Deploy Pages
+    needs: nim
+    permissions:
+      id-token: write
+      pages: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Deploy Pages
+      id: deployment
+      uses: actions/deploy-pages@v1

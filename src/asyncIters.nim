@@ -1,3 +1,28 @@
+##[
+  This module implements asynchronous iterators. For more information about asynchronous procedures
+  in general, see `std/asyncdispatch`_ documentation.
+
+  .. _std/asyncdispatch: https://nim-lang.org/docs/asyncdispatch.html
+]##
+runnableExamples:
+  from   std/asyncdispatch import sleepAsync, waitFor
+
+  func countUpAsync(a, b: int): AsyncIterator[int] =
+    iterator countUpAsync: Future[int] {.asyncIter.} =
+      for i in a .. b:
+        echo "Generating..."
+        await sleepAsync 50 # You can await.
+        yieldAsync i        # And you can yield.
+
+    result = countUpAsync
+
+  proc test {.async.} =
+    for i in awaitIter countUpAsync(1, 5):
+      echo "Received ", i
+      await sleepAsync 150
+
+  waitFor test()
+
 from   std/asyncdispatch import nil
 from   std/asyncfutures import nil
 import std/macros
@@ -75,7 +100,7 @@ func desugarYields(iterBody, loopBodySym: NimNode) =
 
   iterBody.recurse
 
-macro asyncIter*(iterDef): untyped =
+macro asyncIter*(iterDef: untyped): untyped =
   ## Define an async iterator. It can have `yieldAsync` and `yieldAsyncFrom` statements in its body.
 
   iterDef.expectKind nnkIteratorDef
@@ -109,7 +134,7 @@ template breakAsync* {.error: "breakAsync outside of async loop".} = discard
 template continueAsync* {.error: "continueAsync outside of async loop".} = discard
   ## Like `continue` but for async loops.
 
-template asyncLoopMagic(body): untyped = body
+template asyncLoopMagic(body: untyped): untyped = body
   ## A no-op transformer used to mark `return` statements that have already been processed.
 
 func assignFromTuple(targets, source: NimNode): NimNode =
@@ -185,7 +210,7 @@ macro awaitEach*(iter: CustomAsyncIterator; loopVarsAndBody: varargs[untyped]) =
 macro awaitEach*(iter: typed; loopVarsAndBody: varargs[untyped]) =
   ## An overload that emits a helpful error message when `iter` has incorrect type.
 
-  error "awaitEach expects an async iterator, " & iter.getTypeInst.repr & " given", iter
+  error "awaitEach expects an async iterator, got" & iter.getTypeInst.repr, iter
 
 macro awaitIter*(loop: ForLoopStmt) =
   ## Iterate over an async iterator. Like regular `await`, this can only occur in procedures
