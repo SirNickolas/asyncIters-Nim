@@ -219,7 +219,7 @@ func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool) =
   # inside a `block` is deprecated and will change its meaning to what we already do now.
   let loopBodyIndex = if tree.kind not_in {nnkForStmt, nnkWhileStmt}: -1 else: tree.len - 1
   for i, node in tree:
-    if not mctx.maybeTransformMagicReturn(node) and not (block:
+    if node.kind not_in RoutineNodes and not mctx.maybeTransformMagicReturn(node) and not (block:
       # Recurse.
       mctx.withMaybeNamedBlock node:
         mctx.transformBody(node, interceptBreakContinue and i != loopBodyIndex)

@@ -40,12 +40,14 @@ test "async iterator can close over variables in its scope":
       sum += x
   check sum == 10
 
-test "can yield from another async iterator":
-  func countUpAsync(a, b: int; step = 1): auto =
-    result = iterator: Future[int] {.asyncIter.} =
-      for i in countUp(a, b, step):
-        yieldAsync i
+func countUpAsync(a, b: int; step = 1): auto =
+  ## A simple iterator for tests. Like `countUp`, but pretends to be asynchronous.
 
+  result = iterator: Future[int] {.asyncIter.} =
+    for i in countUp(a, b, step):
+      yieldAsync i
+
+test "can yield from another async iterator":
   func evensAndOdds(a, b: int): auto =
     let evens = countUpAsync(a, b, 2)
     let odds  = countUpAsync(a + 1, b, 2)
@@ -106,3 +108,11 @@ test "`awaitIter` can unpack a 1-element tuple":
       check five == 5
       n += 1
   check n == 3
+
+test "can declare procedures inside a loop":
+  var sum = 0
+  runAsync:
+    for i in awaitIter countUpAsync(1, 3):
+      func sqr(x: int): int = return x * x # `return` is essential for this test.
+      sum += i.sqr
+  check sum == 1 + 4 + 9
