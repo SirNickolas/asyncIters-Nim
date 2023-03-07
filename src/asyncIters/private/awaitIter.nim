@@ -63,9 +63,9 @@ type
     # Fields for `return` support:
     plainReturnMagicCode: NimNode ## `nnkUInt32Lit` or `nil` if not allocated yet.
     returnValMagicCode: NimNode ## `nnkUInt32Lit` or `nil` if not allocated yet.
-    returnLit: NimNode ## One of `nnkLiterals` or `nil` if can return different values.
+    returnLit: NimNode ## One of `nnkLiterals` or `nnkNone` if can return different values.
     deferredReturnLists: seq[NimNode] ## `seq[nnkStmtList]`
-    resultVar: NimNode ## `nnkSym` or `nil` if not allocated yet.
+    actualResultVar: NimNode ## `nnkSym` or `nil` if not allocated yet.
     forwardedReturnStmt: NimNode ## Typically, `nnkStmtList`; or `nil` if not occurred.
 
 using
@@ -193,17 +193,17 @@ func processReturnVal(mctx; val, magicStmts: NimNode): NimNode =
     if mctx.canHandleReturnValLazily val:
       mctx.deferredReturnLists &= magicStmts
     else:
-      let resultVar = mctx.resultVar.getOrAllocate:
+      let actualResultVar = mctx.actualResultVar.getOrAllocate:
         # This is the first nontrivial `return val` statement we've encountered.
-        genSym(nskVar, "result").asLet resultVar:
+        genSym(nskVar, "actualResult").asLet actualResultVar:
           let seenLit = mctx.returnLit
           mctx.returnLit = nnkNone.newNimNode # Forget it. From now on, we will always be eager.
           # Patch statement lists we've deferred.
           for deferred in mctx.deferredReturnLists:
-            # -> resultVar = seenLit
-            deferred.insert 0, resultVar.newAssignment seenLit
-      # -> resultVar = val
-      magicStmts.add resultVar.newAssignment val
+            # -> actualResultVar = seenLit
+            deferred.insert 0, actualResultVar.newAssignment seenLit
+      # -> actualResultVar = val
+      magicStmts.add actualResultVar.newAssignment val
     mctx.returnValMagicCode
 
 func transformReturnStmt(mctx; ret: NimNode): NimNode =
@@ -277,10 +277,11 @@ func createCaseDispatcher(mctx; retVar: NimNode): NimNode =
     result.add:
       mctx.assignMagicCode(mctx.plainReturnMagicCode).add(nnkReturnStmt.newTree newEmptyNode())
   if not mctx.returnValMagicCode.isNil:
-    # -> of ...: return resultVar
+    # -> of ...: return actualResultVar
     result.add:
       mctx.assignMagicCode(mctx.returnValMagicCode).add:
-        nnkReturnStmt.newTree if mctx.returnLit.isNil: mctx.resultVar else: mctx.returnLit
+        nnkReturnStmt.newTree:
+          if mctx.returnLit.kind != nnkNone: mctx.returnLit else: mctx.actualResultVar
   for blk in mctx.knownNamedBlocks.values:
     if not blk.magicCode.isNil:
       # -> of ...: break ...
@@ -296,11 +297,11 @@ func completeCaseDispatcher(ctx; caseStmt, retVar: NimNode): NimNode =
   let empty = newEmptyNode()
   # -> case (...)
   let caseExpr = caseStmt[0]
-  if not ctx.resultVar.isNil:
-    # -> (var resultVar: typeOf(result); ...)
+  if not ctx.actualResultVar.isNil:
+    # -> (var actualResultVar: typeOf(result); ...)
     caseExpr.add nnkVarSection.newTree nnkIdentDefs.newTree(
-      ctx.resultVar,
-      bindSym"typeOf".newCall ident"result",
+      ctx.actualResultVar,
+      bindSym"typeOf".newCall ident"result", # Might be incorrect if `result` is shadowed.
       empty,
     )
   # -> (...; let ret = ...; ret)
