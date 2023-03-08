@@ -24,15 +24,50 @@ runnableExamples:
 
   waitFor test()
 
-from ./asyncIters/private/backend import nil
+from std/strutils import normalize
 
-export backend except asyncItersBackend
+const
+  asyncBackend {.strDefine.} = "asyncdispatch"
+  backend = asyncBackend.normalize
+
+when backend == "asyncdispatch":
+  from std/asyncdispatch import nil
+  from std/asyncfutures import Future
+
+  export asyncdispatch.async
+  when declared asyncdispatch.await:
+    export asyncdispatch.await
+  export asyncfutures except callSoon # `asyncdispatch` provides an alternative implementation.
+elif backend == "chronos":
+  from chronos/asyncloop import Future
+
+  export asyncloop
 
 when defined nimdoc:
   include ./asyncIters/private/asyncIter
   include ./asyncIters/private/awaitIter
 else:
   from ./asyncIters/private/asyncIter import nil
-  from ./asyncIters/private/awaitIter import nil
+  from ./asyncIters/private/awaitIter import customAsyncIterator
 
   export asyncIter, awaitIter
+
+when declared Future:
+  type AsyncIterator*[T] = customAsyncIterator(T, Future)
+    ##[
+      Type of async iterators after they are processed.
+
+      This type is not declared if you pass `-d=asyncBackend=none`:option: (or some unrecognized
+      backend name) to the compiler. Known backends include `asyncdispatch`_ (used by default
+      if not set explicitly) and `chronos`_. If you’d like to use `asyncIters` with a backend that
+      did not exist at the moment of writing, you need to use `customAsyncIterator`_ and specify
+      the `Future`_ type.
+
+      Note also that this is only a *suggested* iterator type. Nothing stops you from using
+      a different one or even having multiple in the same program.
+
+      .. _asyncdispatch: https://nim-lang.org/docs/asyncdispatch.html
+      .. _chronos: https://github.com/status-im/nim-chronos
+      .. _customAsyncIterator: #customAsyncIterator.t,typedesc,untyped
+      .. _Future: https://nim-lang.org/docs/asyncfutures.html
+    ]##
