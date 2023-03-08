@@ -172,6 +172,16 @@ test "can access `result` inside a loop":
   check waitFor(run()) == -(1 + 2 + 3)
   check t == (1 + 2 + 3, )
 
+test "can pass `result` from a loop to a template":
+  template add5(x: int) = x += 5
+
+  proc run: Future[int] {.async.} =
+    for i in awaitIter countUpAsync(1, 2):
+      result.add5
+      add5 result
+
+  check waitFor(run()) == 20
+
 test "can nest loops":
   var sum = 0
 
