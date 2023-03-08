@@ -182,6 +182,24 @@ test "can pass `result` from a loop to a template":
 
   check waitFor(run()) == 20
 
+test "can nest a regular loop inside async one":
+  var sum = 0
+
+  proc run: Future[string] {.async.} =
+    for i in awaitIter countUpAsync(1, 10):
+      for j in i .. 10:
+        if j == 6:
+          break
+        elif i == 7 and j == 9:
+          return "ok"
+        sum += j
+        continue
+      sum += i * 100
+    check false
+
+  check waitFor(run()) == "ok"
+  check sum == 2170
+
 test "can nest loops":
   var sum = 0
 
@@ -193,6 +211,7 @@ test "can nest loops":
         elif i == 7 and j == 9:
           return "ok"
         sum += j
+        continue
       sum += i * 100
     check false
 
