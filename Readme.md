@@ -120,11 +120,12 @@ in mind.
 
     With async iterators, this restriction goes further:
 
-    1. You must not **indirectly** invoke `yieldAsync` and `yieldAsyncFrom` (they are magic
+    1. You must not *indirectly* invoke `yieldAsync` and `yieldAsyncFrom` (they are magic
        identifiers so the compiler won’t let you).
-    2. You must not **indirectly** invoke `return`, `break`, or `continue` from inside
-       an `awaitIter` loop body.
-    3. In an `awaitIter` loop body, you must not access the `result` implicit variable.
+    2. You must not *indirectly* invoke `return`, `break`, or `continue` from inside an `awaitIter`
+       loop body.
+    3. You must not *indirectly* access the `result` implicit variable from inside an `awaitIter`
+       loop body.
 
 3. `awaitIter` is always tied to a `for` loop. I.e., you cannot pull a single value from
    an iterator; you can only run through all values it is going to produce. However, `break`ing

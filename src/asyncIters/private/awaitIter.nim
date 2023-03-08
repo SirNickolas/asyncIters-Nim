@@ -60,6 +60,7 @@ type
     maxMagicCode: uint32
     hasPlainBreak: bool
     knownNamedBlocks: Table[string, NamedBlock]
+    resultVar: NimNode ## `nnkSym` or `nil` if not allocated yet.
     # Fields for `return` support:
     plainReturnMagicCode: NimNode ## `nnkUInt32Lit` or `nil` if not allocated yet.
     returnValMagicCode: NimNode ## `nnkUInt32Lit` or `nil` if not allocated yet.
@@ -213,29 +214,41 @@ func transformReturnStmt(mctx; ret: NimNode): NimNode =
   ret[0] = mctx.magicCodeSym.newCall val
   mctx.magicSym.newCall(val, stmts.add ret)
 
-func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool) =
-  # We should stop intercepting `break` and `continue` when descending into the last child
-  # of a nested loop. `block` statements are not treated specially since unlabeled `break`
-  # inside a `block` is deprecated and will change its meaning to what we already do now.
-  let loopBodyIndex = if tree.kind not_in {nnkForStmt, nnkWhileStmt}: -1 else: tree.len - 1
-  for i, node in tree:
-    if node.kind not_in RoutineNodes and not mctx.maybeTransformMagicReturn(node) and not (block:
-      # Recurse.
-      mctx.withMaybeNamedBlock node:
-        mctx.transformBody(node, interceptBreakContinue and i != loopBodyIndex)
-    ): # Not a magic return section nor a named block.
-      tree[i] = case node.kind:
-        of nnkBreakStmt:
-          mctx.transformBreakStmt(node, interceptBreakContinue)
-        of nnkContinueStmt:
-          if not interceptBreakContinue:
-            continue
-          # -> asyncLoopMagic(0'u32): return asyncLoopMagicCode(0'u32)
-          mctx.newMagicReturn(mctx.zero, prototype = node)
-        of nnkReturnStmt:
-          mctx.transformReturnStmt node
-        else:
-          continue
+func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool {.discardable.} =
+  ## Recursively traverse `tree` and transform it. Return `true` iff `tree` is a named block.
+
+  mctx.withMaybeNamedBlock tree:
+    if tree.kind == nnkDotExpr:
+      # If `tree` is `x.y`, we should not descend into `y`.
+      mctx.transformBody tree[0], interceptBreakContinue
+    else:
+      # We should stop intercepting `break` and `continue` when descending into the last child
+      # of a nested loop. `block` statements are not treated specially since unlabeled `break`
+      # inside a `block` is deprecated and will change its meaning to what we already do now.
+      let loopBodyIndex = if tree.kind not_in {nnkForStmt, nnkWhileStmt}: -1 else: tree.len - 1
+      for i, node in tree:
+        if (
+          node.kind not_in RoutineNodes and
+          not mctx.maybeTransformMagicReturn(node) and
+          # Recurse.
+          not mctx.transformBody(node, interceptBreakContinue and i != loopBodyIndex)
+        ): # Not a routine definition, a magic return section, nor a named block.
+          tree[i] = case node.kind:
+            of nnkIdent:
+              if not node.eqIdent"result":
+                continue
+              mctx.resultVar.getOrAllocate genSym(nskVar, "result")
+            of nnkBreakStmt:
+              mctx.transformBreakStmt(node, interceptBreakContinue)
+            of nnkContinueStmt:
+              if not interceptBreakContinue:
+                continue
+              # -> asyncLoopMagic(0'u32): return asyncLoopMagicCode(0'u32)
+              mctx.newMagicReturn(mctx.zero, prototype = node)
+            of nnkReturnStmt:
+              mctx.transformReturnStmt node
+            else:
+              continue
 
 func assignMagicCode(mctx; test: NimNode): NimNode =
   ## Allocate a new `uint32` value and assign it to `test`, which must be an `nnkUInt32Lit`.
@@ -267,15 +280,13 @@ func createCaseDispatcher(mctx; retVar: NimNode): NimNode =
   ## Create an **incomplete** `case` statement that handles the magic code returned from the loop
   ## body (expected to be stored in `retVar`).
 
-  # -> case ...
-  result = nnkCaseStmt.newTree(
-    nnkStmtListExpr.newNimNode,
-    nnkOfBranch.newNimNode, # A branch for `0, 1`.
-  )
+  # -> case ret
+  result = nnkCaseStmt.newTree(retVar, nnkOfBranch.newNimNode) # A branch for `0, 1`.
   if not mctx.plainReturnMagicCode.isNil:
-    # -> of ...: return
+    # -> of ...: return resultVar
     result.add:
-      mctx.assignMagicCode(mctx.plainReturnMagicCode).add(nnkReturnStmt.newTree newEmptyNode())
+      mctx.assignMagicCode(mctx.plainReturnMagicCode).add:
+        nnkReturnStmt.newTree if mctx.resultVar.isNil: newEmptyNode() else: mctx.resultVar
   if not mctx.returnValMagicCode.isNil:
     # -> of ...: return actualResultVar
     result.add:
@@ -290,65 +301,96 @@ func createCaseDispatcher(mctx; retVar: NimNode): NimNode =
     # -> else: ...
     result.add nnkElse.newTree mctx.replaceMagicCode(mctx.forwardedReturnStmt, repl = retVar)
 
-func completeCaseDispatcher(ctx; caseStmt, retVar: NimNode): NimNode =
-  ## Patch the `case` statement made by `createCaseDispatcher` and return the node where `retVar`’s
-  ## initializer should be added.
+func patchCaseDispatcher(ctx; caseStmt: NimNode): NimNode =
+  ## Transform the `case` statement made by `createCaseDispatcher` into the most appropriate form.
+  ## May return `nil` if a dispatcher is not needed at all.
 
-  let empty = newEmptyNode()
-  # -> case (...)
-  let caseExpr = caseStmt[0]
-  if not ctx.actualResultVar.isNil:
-    # -> (var actualResultVar: typeOf(result); ...)
-    caseExpr.add nnkVarSection.newTree nnkIdentDefs.newTree(
-      ctx.actualResultVar,
-      bindSym"typeOf".newCall ident"result", # Might be incorrect if `result` is shadowed.
-      empty,
-    )
-  # -> (...; let ret = ...; ret)
-  result = nnkIdentDefs.newTree(retVar, empty)
-  caseExpr.add nnkLetSection.newTree result, retVar
-
-  # -> of 0, 1: discard
-  let firstBranch = caseStmt[1]
-  firstBranch.add ctx.zero
-  if ctx.hasPlainBreak:
-    firstBranch.add ctx.one
-  firstBranch.add nnkDiscardStmt.newTree empty
-
-  # If the last branch of a `case` is `of`, turn it into `else`.
-  let lastBranch = caseStmt[^1]
-  if lastBranch.kind == nnkOfBranch:
-    caseStmt[^1] = nnkElse.newTree lastBranch[1]
-
-func createDispatcher(body: NimNode): (NimNode, NimNode) =
-  ##[
-    Transform loop body and generate code that runs it. Return a `(dispatcher, invocationWrapper)`
-    pair: `dispatcher` is the code that runs the loop and does some postprocessing and
-    `invocationWrapper` is the node you should add body invocation to.
-  ]##
-  var mctx = initContext()
-  body.expectKind nnkStmtList
-  mctx.transformBody(body, interceptBreakContinue = true)
-  let retVar = genSym(ident = "ret")
-  let caseStmt = mctx.createCaseDispatcher retVar
   case caseStmt.len:
     of 2:
-      # -> discard ...
-      let d = nnkDiscardStmt.newNimNode
-      (d, d)
+      nil # Can ignore the return code.
     of 3:
       # There is only one nontrivial branch. Can emit `if` instead of `case`.
       let cond = nnkInfix.newNimNode
-      if mctx.hasPlainBreak:
+      if ctx.hasPlainBreak:
         # -> 1'u32 < ...
-        cond.add bindSym"<", mctx.one
+        cond.add bindSym"<", ctx.one
       else:
         # -> 0'u32 != ...
-        cond.add bindSym"!=", mctx.zero # `test, jnz` is better than `cmp, ja`.
+        cond.add bindSym"!=", ctx.zero # `test, jnz` is better than `cmp, ja`.
+      cond.add caseStmt[0] # `retVar`
       # -> if ...: ...
-      (newIfStmt (cond, caseStmt[2][^1]), cond)
+      newIfStmt (cond, caseStmt[2][^1])
     else:
-      (caseStmt, mctx.completeCaseDispatcher(caseStmt, retVar))
+      # -> of 0, 1: discard
+      let firstBranch = caseStmt[1]
+      firstBranch.add ctx.zero
+      if ctx.hasPlainBreak:
+        firstBranch.add ctx.one
+      firstBranch.add nnkDiscardStmt.newTree newEmptyNode()
+
+      # If the last branch of a `case` is `of`, turn it into `else`.
+      let lastBranch = caseStmt[^1]
+      if lastBranch.kind == nnkOfBranch:
+        caseStmt[^1] = nnkElse.newTree lastBranch[1]
+
+      caseStmt
+
+func createAuxilaryVars(ctx): NimNode =
+  #[ ->
+    var
+      resultVar = move(result)
+      actualResultVar: typeOf(result)
+  ]#
+  let empty = newEmptyNode()
+  let realResult = ident"result"
+  result = nnkVarSection.newNimNode
+  if not ctx.resultVar.isNil:
+    result.add nnkIdentDefs.newTree(
+      ctx.resultVar,
+      empty,
+      bindSym"move".newCall realResult,
+    )
+  if not ctx.actualResultVar.isNil:
+    result.add nnkIdentDefs.newTree(
+      ctx.actualResultVar,
+      bindSym"typeOf".newCall realResult, # Might be incorrect if `result` is shadowed.
+      empty,
+    )
+
+func processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNode] =
+  ##[
+    Transform the loop body and generate code that runs it. Return a tuple:
+    #. `decls` (`nnkStmtList`) are declarations that must be injected prior to the body definition;
+    #. `invoker` (`nnkStmtList`) is the code that runs the loop and does some postprocessing;
+    #. `invocationWrapper` (a descendant of `invoker`) is where the body invocation should be added.
+  ]##
+  let
+    retVar = genSym(ident = "ret")
+    (caseStmt, ctx) = block:
+      var mctx = initContext()
+      body.expectKind nnkStmtList
+      mctx.transformBody(body, interceptBreakContinue = true)
+      (mctx.createCaseDispatcher retVar, mctx)
+
+  result.decls = nnkStmtList.newNimNode
+  if (let vars = ctx.createAuxilaryVars; vars.len != 0):
+    result.decls.add vars
+
+  let dispatcher = ctx.patchCaseDispatcher caseStmt
+  result.invoker = newStmtList:
+    if dispatcher.isNil:
+      # -> discard ...
+      result.invocationWrapper = nnkDiscardStmt.newNimNode
+      result.invocationWrapper
+    else:
+      # -> let ret = ...
+      result.invocationWrapper = nnkIdentDefs.newTree(retVar, newEmptyNode())
+      nnkLetSection.newTree result.invocationWrapper
+  if not ctx.resultVar.isNil:
+    # -> result = move(resultVar)
+    result.invoker.add ident"result".newAssignment bindSym"move".newCall ctx.resultVar
+  if not dispatcher.isNil:
+    result.invoker.add dispatcher
 
 macro awaitEach(iter: CustomAsyncIterator; originalBody: untyped; loopVars: varargs[untyped]) =
   ## Transform the loop body into an asynchronous procedure and run it.
@@ -358,19 +400,21 @@ macro awaitEach(iter: CustomAsyncIterator; originalBody: untyped; loopVars: vara
       let params = iter.getTypeImpl[0]
       (params[0], params[1][1][0][1][1])
     (loopParam, body) = prepareLoopVarAndBody(loopVars, originalBody)
-    (dispatcher, invocationWrapper) = originalBody.createDispatcher
+    generated = originalBody.processBody
     bodyProcSym = genSym(nskProc, "asyncForBody") # For better stack traces.
-  result = newStmtList(
+  result = generated.decls
+  result.add(
     newProc(
       name = bodyProcSym,
       params = [futureType, newIdentDefs(loopParam, yieldType)],
       pragmas = nnkPragma.newTree ident"async",
       body = body,
     ),
-    dispatcher,
+    generated.invoker,
   )
   # -> ... await(iter(asyncForBody))
-  invocationWrapper.add iter.copyLineInfoTo(ident"await").newCall(iter.newCall bodyProcSym)
+  generated.invocationWrapper.add:
+    iter.copyLineInfoTo(ident"await").newCall(iter.newCall bodyProcSym)
 
   when defined asyncIters_debugAwait:
     echo result.repr

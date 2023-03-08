@@ -116,3 +116,33 @@ test "can declare procedures inside a loop":
       func sqr(x: int): int = return x * x # `return` is essential for this test.
       sum += i.sqr
   check sum == 1 + 4 + 9
+
+test "can `continue` a loop":
+  var sum = 0
+  runAsync:
+    for i in awaitIter countUpAsync(1, 10):
+      if (i and 0x3) == 0x0:
+        continue
+      sum += i
+    sum += 100
+  check sum == (1 + 2 + 3) + (5 + 6 + 7) + 9 + 10 + 100
+
+test "can `break` from a loop":
+  var sum = 0
+  runAsync:
+    for i in awaitIter countUpAsync(1, 10):
+      if (i and 0x3) == 0x0:
+        break
+      sum += i
+    sum += 100
+  check sum == 1 + 2 + 3 + 100
+
+test "can `return` from a loop":
+  var sum = 0
+  runAsync:
+    for i in awaitIter countUpAsync(1, 10):
+      if (i and 0x3) == 0x0:
+        return # From `runAsync`.
+      sum += i
+    check false
+  check sum == 1 + 2 + 3
