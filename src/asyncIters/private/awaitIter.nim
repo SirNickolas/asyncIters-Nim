@@ -73,11 +73,11 @@ using
   ctx: Context
   mctx: var Context
 
-template asyncLoopMagic(code: uint32; body: untyped): untyped = body
-  ## A no-op transformer used to mark `return` statements that have already been processed.
+template asyncLoopMagic(code: uint32) {.pragma.}
+  ## A pragma used to mark `return` statements that have already been processed.
 
 template asyncLoopMagicCode(code: uint32): uint32 = code
-  ## A no-op transformer used to mark a value that is being returned.
+  ## An identity template used to mark a value that is being returned.
 
 func initContext: Context =
   Context(
@@ -100,9 +100,16 @@ func newBareMagicReturn(ctx; val, prototype: NimNode): NimNode =
   # -> return asyncLoopMagicCode(val)
   nnkReturnStmt.newNimNode(prototype).add(ctx.magicCodeSym.newCall val)
 
+func wrapWithMagic(ctx; val, stmts: NimNode): NimNode =
+  # -> {.asyncLoopMagic: val.}: stmts
+  nnkPragmaBlock.newTree(
+    nnkPragma.newTree nnkExprColonExpr.newTree(ctx.magicSym, val),
+    stmts,
+  )
+
 func newMagicReturn(ctx; val, prototype: NimNode): NimNode =
-  # -> asyncLoopMagic(val): return asyncLoopMagicCode(val)
-  ctx.magicSym.newCall(val, ctx.newBareMagicReturn(val, prototype))
+  # -> {.asyncLoopMagic: val.}: return asyncLoopMagicCode(val)
+  ctx.wrapWithMagic(val, ctx.newBareMagicReturn(val, prototype))
 
 func maybeEnterNamedBlock(mctx; node: NimNode): string =
   ## If `node` is a named `block` statement or expression, remember it in the context and return
@@ -130,22 +137,25 @@ template withMaybeNamedBlock(mctx: Context; node: NimNode; body: untyped): bool 
   mctx.maybeLeaveNamedBlock signature
 
 func maybeTransformMagicReturn(mctx; node: NimNode): bool =
-  ## If `node` is an `asyncLoopMagic(...)` call, process it and return `true`. Otherwise, return
-  ## `false`.
+  ## If `node` is an `{.asyncLoopMagic: ...'u32.}: ...` pragma block, process it and return `true`.
+  ## Otherwise, return `false`.
 
-  result = node.kind in CallNodes and node[0] == mctx.magicSym
-  if result:
-    # This is our `asyncLoopMagic` annotation put by an outer `awaitIter` (we are a nested loop).
-    if mctx.forwardedReturnStmt.isNil:
-      let x = node[1].intVal.uint32
-      if x > mctx.maxMagicCode:
-        mctx.maxMagicCode = x
-      # We assume that `async` transforms `return` statements uniformly (i.e., doesn't
-      # special-case anything). Therefore, we can remember only one of its transformation
-      # results and expect all others to look similarly.
-      mctx.forwardedReturnStmt = node[2]
-    # -> return asyncLoopMagicCode(...'u32)
-    node[2] = mctx.newBareMagicReturn(node[1], prototype = node[2])
+  if node.kind == nnkPragmaBlock:
+    for pragma in node[0]:
+      if pragma.kind in {nnkExprColonExpr, nnkCall} and pragma[0] == mctx.magicSym:
+        # We've found our `asyncLoopMagic` pragma in the loop body passed to us. That means we are
+        # a nested loop - the pragma was put by an outer `awaitIter` invocation.
+        if mctx.forwardedReturnStmt.isNil:
+          let x = pragma[1].intVal.uint32
+          if x > mctx.maxMagicCode:
+            mctx.maxMagicCode = x
+          # We assume that `async` transforms `return` statements uniformly (i.e., doesn't
+          # special-case anything). Therefore, we can remember only one of its transformation
+          # results and expect all others to look similarly.
+          mctx.forwardedReturnStmt = node[1]
+        # -> return asyncLoopMagicCode(...'u32)
+        node[1] = mctx.newBareMagicReturn(pragma[1], prototype = node[1])
+        return true
 
 func transformBreakStmt(mctx; brk: NimNode; interceptPlainBreak: bool): NimNode =
   let blockName = brk[0]
@@ -158,12 +168,12 @@ func transformBreakStmt(mctx; brk: NimNode; interceptPlainBreak: bool): NimNode 
         # This is the first time we break out of this block.
         blk.breakStmt = brk
         blk.magicCode = nnkUInt32Lit.newNimNode
-      # -> asyncLoopMagic(...'u32): return asyncLoopMagicCode(...'u32)
+      # -> {.asyncLoopMagic: ...'u32.}: return asyncLoopMagicCode(...'u32)
       return mctx.newMagicReturn(blk.magicCode, prototype = brk)
   elif interceptPlainBreak:
     # An unlabeled `break`.
     mctx.hasPlainBreak = true
-    # -> asyncLoopMagic(1'u32): return asyncLoopMagicCode(1'u32)
+    # -> {.asyncLoopMagic: 1'u32.}: return asyncLoopMagicCode(1'u32)
     return mctx.newMagicReturn(mctx.one, prototype = brk)
   brk
 
@@ -210,9 +220,9 @@ func processReturnVal(mctx; val, magicStmts: NimNode): NimNode =
 func transformReturnStmt(mctx; ret: NimNode): NimNode =
   let stmts = nnkStmtList.newNimNode
   let val = mctx.processReturnVal(ret[0], magicStmts = stmts)
-  # -> asyncLoopMagic(val): return asyncLoopMagicCode(val)
+  # -> {.asyncLoopMagic: val.}: ...; return asyncLoopMagicCode(val)
   ret[0] = mctx.magicCodeSym.newCall val
-  mctx.magicSym.newCall(val, stmts.add ret)
+  mctx.wrapWithMagic(val, stmts.add ret)
 
 func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool {.discardable.} =
   ## Recursively traverse `tree` and transform it. Return `true` iff `tree` is a named block.
@@ -243,7 +253,7 @@ func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool {.di
             of nnkContinueStmt:
               if not interceptBreakContinue:
                 continue
-              # -> asyncLoopMagic(0'u32): return asyncLoopMagicCode(0'u32)
+              # -> {.asyncLoopMagic: 0'u32.}: return asyncLoopMagicCode(0'u32)
               mctx.newMagicReturn(mctx.zero, prototype = node)
             of nnkReturnStmt:
               mctx.transformReturnStmt node
