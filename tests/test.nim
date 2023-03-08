@@ -62,13 +62,14 @@ test "can yield from another async iterator":
   check data == [0, 2, 4, 6, 8, 1, 3, 5, 7, 9]
 
 test "`awaitIter` can unpack simple tuples":
-  iterator indexedStrings: Future[(int, string)] {.asyncIter.} =
-    yieldAsync 1, "test"
-    yieldAsync (1, "test")
+  asyncIter:
+    iterator indexedStrings: Future[(int, string)] =
+      yieldAsync 1, "test"
+      yieldAsync (1, "test")
 
-  iterator indexedPositions: Future[(int, string, tuple[x, y: float])] {.asyncIter.} =
-    yieldAsync 1, "here", (2.0, 4.0)
-    yieldAsync (1, "here", (2.0, 4.0))
+    iterator indexedPositions: Future[(int, string, tuple[x, y: float])] =
+      yieldAsync 1, "here", (2.0, 4.0)
+      yieldAsync (1, "here", (2.0, 4.0))
 
   var n = 0
   runAsync:
