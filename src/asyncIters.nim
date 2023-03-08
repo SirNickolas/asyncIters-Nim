@@ -24,13 +24,9 @@ runnableExamples:
 
   waitFor test()
 
-from std/asyncdispatch import nil
-from std/asyncfutures import nil
+from ./asyncIters/private/backend import nil
 
-export asyncdispatch.async
-when declared asyncdispatch.await:
-  export asyncdispatch.await
-export asyncfutures except callSoon # `asyncdispatch` provides an alternative implementation.
+export backend except asyncItersBackend
 
 when defined nimdoc:
   include ./asyncIters/private/asyncIter

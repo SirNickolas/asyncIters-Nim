@@ -80,11 +80,12 @@ func transformAsyncIterDefs(iterDef: NimNode): NimNode =
     result.body.desugarYields bodySym
 
 macro asyncIter*(iterDef: untyped): untyped =
-  ## Define an async iterator. It can have `yieldAsync` and `yieldAsyncFrom` statements in its body.
-  ##
-  ## This macro can be applied to either individual iterator definitions (`{.asyncIter.}`) or entire
-  ## sections of code containing them (`asyncIter:`).
+  ##[
+    Define an async iterator. It can have `yieldAsync` and `yieldAsyncFrom` statements in its body.
 
+    This macro can be applied to either individual iterator definitions (`{.asyncIter.}`) or entire
+    sections of code containing them (`asyncIter:`).
+  ]##
   result = iterDef.transformAsyncIterDefs
   when defined asyncIters_debugAsync:
     echo result.repr

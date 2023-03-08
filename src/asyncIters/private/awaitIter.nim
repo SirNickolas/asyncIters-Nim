@@ -1,17 +1,32 @@
-from   std/asyncfutures import nil
 import std/macros
 from   std/strutils import nimIdentNormalize
 import std/tables
 from   letUtils import asLet, asVar
+from   ./backend import nil
 from   ./utils import copyLineInfoTo, morphInto
 
-type
-  CustomAsyncIterator*[T; F] = proc (body: proc (item: T): F): F
-    ## Type of async iterators after they are processed. Do not make any assumptions about
-    ## its definition — it is an implementation detail. Just use `CustomAsyncIterator[T, F]`.
-  AsyncIterator*[T] = CustomAsyncIterator[T, asyncfutures.Future[uint32]]
-    ## Type of async iterators after they are processed. Do not make any assumptions about
-    ## its definition — it is an implementation detail. Just use `AsyncIterator[T]`.
+type CustomAsyncIterator*[T; F] = proc (body: proc (item: T): F): F
+  ## Type of async iterators after they are processed. Do not make any assumptions about
+  ## its definition — it is an implementation detail. Just use `CustomAsyncIterator[T, F]`.
+
+when declared backend.Future:
+  type AsyncIterator*[T] = CustomAsyncIterator[T, backend.Future[uint32]]
+    ##[
+      Type of async iterators after they are processed.
+
+      This type is not declared if you pass `-d=asyncBackend=none` (or some unrecognized backend
+      name) to the compiler. Known backends include `asyncdispatch`_ (used if not set explicitly)
+      and `chronos`_. If you’d like to use `asyncIters` with a backend that did not exist
+      at the moment of writing, you need to use `CustomAsyncIterator` and specify the `Future` type.
+
+      Note also that this is only a *suggested* iterator type. Nothing stops you from using
+      a different one or even having multiple in the same program.
+
+      .. _asyncdispatch: https://nim-lang.org/docs/asyncdispatch.html
+      .. _chronos: https://github.com/status-im/nim-chronos
+    ]##
+else:
+  discard backend.asyncItersBackend # Silence `[UnusedImport]`.
 
 func safeSignature(node: NimNode): string =
   ## Return a string that uniquely identifies the node (which must be either `nnkIdent`
