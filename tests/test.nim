@@ -1,10 +1,10 @@
-from   std/asyncdispatch import nil
+from   std/asyncdispatch import waitFor
 import std/unittest
 import asyncIters
 
-template runAsync(body) =
+template runAsync(body: untyped) =
   proc run {.gensym, async.} = body
-  asyncdispatch.waitFor run()
+  waitFor run()
 
 test "can declare an async iterator":
   iterator named0: Future[int] {.asyncIter, used.} = discard
@@ -146,3 +146,90 @@ test "can `return` from a loop":
       sum += i
     check false
   check sum == 1 + 2 + 3
+
+test "can `return` a value from a loop":
+  var sum = 0
+
+  proc run: Future[int] {.async.} =
+    for i in awaitIter countUpAsync(1, 10):
+      if (i and 0x3) == 0x0:
+        return 13
+      sum += i
+    check false
+
+  check waitFor(run()) == 13
+  check sum == 1 + 2 + 3
+
+test "can access `result` inside a loop":
+  var t = (result: 0)
+
+  proc run: Future[int] {.async.} =
+    for i in awaitIter countUpAsync(1, 3):
+      t.result += i
+      result -= i
+
+  check waitFor(run()) == -(1 + 2 + 3)
+  check t == (1 + 2 + 3, )
+
+test "can nest loops":
+  var sum = 0
+
+  proc run: Future[string] {.async.} =
+    for i in awaitIter countUpAsync(1, 10):
+      for j in awaitIter countUpAsync(i, 10):
+        if j == 6:
+          break
+        elif i == 7 and j == 9:
+          return "ok"
+        sum += j
+      sum += i * 100
+    check false
+
+  check waitFor(run()) == "ok"
+  check sum == 2170
+
+test "can `break` from a named block":
+  var sum = 0
+  runAsync:
+    block outer:
+      for i in awaitIter countUpAsync(1, 10):
+        block inner:
+          for j in awaitIter countUpAsync(i, 10):
+            if j == 6:
+              break inner
+            elif i == 7 and j == 9:
+              break outer
+            sum += j
+        sum += i * 100
+      check false
+  check sum == 2170
+
+test "named blocks can shadow one another":
+  var sum = 0
+  runAsync:
+    block blk:
+      for i in awaitIter countUpAsync(1, 5):
+        block blk:
+          if i == 3:
+            break blk
+          sum += i
+        if i == 4:
+          break blk
+        sum += i * 10
+      check false
+  check sum == 67
+
+test "can refer to a block before it is shadowed":
+  var sum = 0
+  runAsync:
+    block blk:
+      for i in awaitIter countUpAsync(1, 5):
+        if i == 4:
+          break blk
+        block blk:
+          if i == 3:
+            break blk
+          sum += i
+        sum += i * 10
+      check false
+  check sum == 63
