@@ -5,7 +5,10 @@ func checkReturnType(params: NimNode): NimNode =
   ## Extract the return type from iterator’s params and validate it’s some kind of `Future[T]`.
 
   result = params[0]
-  if result.kind != nnkBracketExpr or result.len != 2:
+  if not (
+    (result.kind == nnkBracketExpr and result.len == 2) or
+    (result.kind in CallNodes and result.len == 3 and result[0].eqIdent"[]")
+  ):
     error "async iterator must yield Future[T]", result or params
 
 func desugarYields(iterBody, loopBodySym: NimNode) =
@@ -64,9 +67,9 @@ func transformAsyncIterDefs(iterDef: NimNode): NimNode =
       )
     let
       returnType = params.checkReturnType
-      yieldType = returnType[1]
+      yieldType = returnType[^1]
       bodySym = genSym(nskParam, "body")
-    returnType[1] = bindSym"uint32"
+    returnType[^1] = bindSym"uint32"
 
     # Turn the `iterator` into a `proc`.
     result = iterDef.morphInto nnkProcDef

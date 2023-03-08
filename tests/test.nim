@@ -3,7 +3,7 @@ import std/unittest
 import asyncIters
 
 template runAsync(body: untyped) =
-  proc run {.gensym, async.} = body
+  proc run {.genSym, async.} = body
   waitFor run()
 
 test "can declare an async iterator":
@@ -13,6 +13,12 @@ test "can declare an async iterator":
   # if you prefer conciseness over ease of debugging.
   let unnamed0 {.used.} = iterator: Future[int] {.asyncIter.} = discard
   let unnamed1 {.used.} = iterator (): Future[int] {.asyncIter.} = discard
+
+test "can declare an async iterator inside a template":
+  template declareIter =
+    iterator nop: Future[int] {.asyncIter, used.} = discard
+
+  declareIter
 
 test "can iterate over an async iterator":
   iterator produce2: Future[int] {.asyncIter.} =
