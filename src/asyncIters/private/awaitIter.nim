@@ -4,7 +4,7 @@ import std/tables
 from   letUtils import asLet, asVar
 from   ./utils import copyLineInfoTo, morphInto
 
-type SomeAsyncIterator[T; F] = proc (body: proc (item: T): F): F
+type SomeAsyncIterator[T; F] = proc (body: proc (item: T): F {.gcSafe.}): F {.gcSafe.}
 
 template customAsyncIterator*(T: typedesc; fut: typed): typedesc =
   ##[

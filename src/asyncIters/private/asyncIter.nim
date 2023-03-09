@@ -69,12 +69,13 @@ func transformAsyncIterDefs(iterDef: NimNode): NimNode =
       returnType = params.checkReturnType
       yieldType = returnType[^1]
       bodySym = genSym(nskParam, "body")
+      itemSym = ident"item" # For friendlier error messages.
     returnType[^1] = bindSym"uint32"
 
     # Turn the `iterator` into a `proc`.
     result = iterDef.morphInto nnkProcDef
     params.add (quote do:
-      let `bodySym`: proc (item: `yieldType`): `returnType`
+      let `bodySym`: proc (`itemSym`: `yieldType`): `returnType` {.gcSafe.}
     )[0]
     result.addPragma ident"async" # An open symbol to allow custom `async` implementations.
     result.body.desugarYields bodySym
