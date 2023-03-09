@@ -6,13 +6,13 @@ from   ./utils import copyLineInfoTo, morphInto
 
 type SomeAsyncIterator[T; F] = proc (body: proc (item: T): F): F
 
-template customAsyncIterator*(t: typedesc; f: untyped): typedesc =
+template customAsyncIterator*(T: typedesc; fut: typed): typedesc =
   ##[
-    Type of async iterators after they are processed. `t` is the type of values an iterator
-    yields; `f` is the future type those values are wrapped with. The only requirement is that
-    `f` must be instantiable with one generic parameter (i.e., `f[U]`).
+    Type of async iterators after they are processed. `T` is the type of values an iterator yields;
+    `fut` is the future type constructor those values are wrapped with. The only requirement
+    is that `fut` must be instantiable with one generic parameter (i.e., `fut[U]`).
   ]##
-  SomeAsyncIterator[t, f[uint32]]
+  SomeAsyncIterator[T, fut[uint32]]
 
 func safeSignature(node: NimNode): string =
   ## Return a string that uniquely identifies the node (which must be either `nnkIdent`

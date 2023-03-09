@@ -269,3 +269,16 @@ test "can refer to a block before it is shadowed":
         sum += i * 10
       check false
   check sum == 63
+
+test "customAsyncIterator can work with arbitrary type constructors":
+  type ArrayTypeConstructor = object
+    len: int
+
+  template `[]`(ctor: ArrayTypeConstructor; T: typedesc): typedesc =
+    array[ctor.len, T]
+
+  const arr10 = ArrayTypeConstructor(len: 10)
+  check (arr10[int] is array[10, int]) # Nim 1.4 requires parenthizing the expression.
+  check (customAsyncIterator(int, arr10) is (
+    proc (body: proc (item: int): array[10, uint32]): array[10, uint32] # An implementation detail.
+  ))

@@ -61,13 +61,13 @@ when declared Future:
       backend name) to the compiler. Known backends include `asyncdispatch`_ (used by default
       if not set explicitly) and `chronos`_. If you’d like to use `asyncIters` with a backend that
       did not exist at the moment of writing, you need to use `customAsyncIterator`_ and specify
-      the `Future`_ type.
+      some `Future`_-like type.
 
       Note also that this is only a *suggested* iterator type. Nothing stops you from using
       a different one or even having multiple in the same program.
 
       .. _asyncdispatch: https://nim-lang.org/docs/asyncdispatch.html
       .. _chronos: https://github.com/status-im/nim-chronos
-      .. _customAsyncIterator: #customAsyncIterator.t,typedesc,untyped
+      .. _customAsyncIterator: #customAsyncIterator.t,typedesc,typed
       .. _Future: https://nim-lang.org/docs/asyncfutures.html
     ]##
