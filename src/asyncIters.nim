@@ -26,6 +26,10 @@ runnableExamples:
 
 from std/strutils import normalize
 
+template exportWhenDeclared(symbol: untyped) =
+  when declared symbol:
+    export symbol
+
 const
   asyncBackend {.strDefine.} = "asyncdispatch"
   backend = asyncBackend.normalize
@@ -35,13 +39,18 @@ when backend == "asyncdispatch":
   from std/asyncfutures import Future
 
   export asyncdispatch.async
-  when declared asyncdispatch.await:
-    export asyncdispatch.await
+  exportWhenDeclared asyncdispatch.await
   export asyncfutures except callSoon # `asyncdispatch` provides an alternative implementation.
 elif backend == "chronos":
-  from chronos/asyncloop import Future
+  from chronos/asyncloop as chr import Future
 
-  export asyncloop
+  # Until https://github.com/status-im/nim-chronos/pull/350 is merged, we reexport only the bare
+  # minimum necessary to compile async procedures.
+  export Future, chr.FutureBase, chr.async, chr.complete, chr.newFuture
+  exportWhenDeclared chr.await
+  exportWhenDeclared chr.futureContinue
+  exportWhenDeclared chr.internalCheckComplete
+  exportWhenDeclared chr.internalRead
 
 when defined nimdoc:
   include ./asyncIters/private/asyncIter
