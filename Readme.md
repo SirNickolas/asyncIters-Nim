@@ -197,4 +197,6 @@ block blk:
     an iterator; you can only run through all values it is going to produce. However, `break`ing
     is allowed, as well as iterating multiple times, so you can work around it.
 
-4.  `multisyncIter` is not currently implemented.
+4.  [`multisyncIter`][multisync] is not currently implemented.
+
+    [multisync]: https://nim-lang.org/docs/asyncdispatch.html#multisync.m,untyped
