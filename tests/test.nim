@@ -288,6 +288,20 @@ proc main =
         check false
     check sum == 63
 
+  test "unlabeled `break` does not interfere with `block`":
+    var ok = false
+    runAsync:
+      for i in awaitIter countUpAsync(1, 5):
+        block:
+          break # Behaviour is different from Nim 1.x!
+        check false
+      for i in awaitIter countUpAsync(1, 5):
+        block blk:
+          break # Behaviour is different from Nim 1.x!
+        check false
+      ok = true
+    check ok
+
   test "can have `proc` as a direct child of a loop":
     # Usually, an `nnkForStmt` wraps an `nnkStmtList`. We have to write a macro to attach
     # an `nnkProcDef` directly.
