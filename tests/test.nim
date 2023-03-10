@@ -225,6 +225,22 @@ proc main =
     check waitFor(run()) == "ok"
     check sum == 2170
 
+  test "can `return` an implicit `result` from a nested loop":
+    var sum = 0
+
+    proc run: Future[string] {.async.} =
+      result = "ok"
+      for i in awaitIter countUpAsync(1, 10):
+        for j in awaitIter countUpAsync(i, 10):
+          if i == 3 and j == 5:
+            return
+          sum += j
+        sum += i * 100
+      check false
+
+    check waitFor(run()) == "ok"
+    check sum == 416
+
   test "can `break` from a named block":
     var sum = 0
     runAsync:

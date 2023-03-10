@@ -240,7 +240,7 @@ func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool) =
         of nnkIdent:
           if not node.eqIdent"result":
             continue
-          mctx.resultVar.getOrAllocate genSym(nskVar, "result") # Must be named `result`.
+          mctx.resultVar.getOrAllocate genSym(nskTemplate, "result") # Must be named `result`.
         of nnkBreakStmt:
           mctx.transformBreakStmt(node, interceptBreakContinue)
         of nnkContinueStmt:
@@ -324,7 +324,7 @@ func patchCaseDispatcher(ctx; caseStmt: NimNode): NimNode =
       # -> if ...: ...
       newIfStmt (cond, caseStmt[2][^1])
     else:
-      # -> of 0, 1: discard
+      # -> of 0'u32, 1'u32: discard
       let firstBranch = caseStmt[1]
       firstBranch.add ctx.zero
       if ctx.hasPlainBreak:
@@ -338,26 +338,23 @@ func patchCaseDispatcher(ctx; caseStmt: NimNode): NimNode =
 
       caseStmt
 
-func createAuxilaryVars(ctx): NimNode =
-  #[ ->
-    var
-      resultVar = move(result)
-      actualResultVar: typeOf(result)
-  ]#
-  let empty = newEmptyNode()
-  let realResult = ident"result"
-  result = nnkVarSection.newNimNode
-  if not ctx.resultVar.isNil:
-    result.add nnkIdentDefs.newTree(
-      ctx.resultVar,
-      empty,
-      bindSym"move".newCall realResult,
-    )
+func createDeclarations(ctx): NimNode =
+  ## Generate declarations that must be visible to the loop body.
+
+  result = nnkStmtList.newNimNode
   if not ctx.actualResultVar.isNil:
-    result.add nnkIdentDefs.newTree(
+    # -> var actualResultVar: typeOf(result)
+    result.add nnkVarSection.newTree newIdentDefs(
       ctx.actualResultVar,
-      bindSym"typeOf".newCall realResult, # Might be incorrect if `result` is shadowed.
-      empty,
+      bindSym"typeOf".newCall ident"result", # Might be incorrect if `result` is shadowed.
+    )
+  if not ctx.resultVar.isNil:
+    # -> template forwarded: untyped = result
+    result.add newProc(
+      procType = nnkTemplateDef,
+      name = ctx.resultVar,
+      params = [bindSym"untyped"],
+      body = ident"result",
     )
 
 func processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNode] =
@@ -367,20 +364,16 @@ func processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNod
     #. `invoker` (`nnkStmtList`) is the code that runs the loop and does some postprocessing;
     #. `invocationWrapper` (a descendant of `invoker`) is where the body invocation should be added.
   ]##
+  body.expectKind nnkStmtList
   let
     retVar = genSym(ident = "ret")
     (caseStmt, ctx) = block:
       var mctx = initContext()
-      body.expectKind nnkStmtList
       mctx.transformBody(body, interceptBreakContinue = true)
-      (mctx.createCaseDispatcher retVar, mctx)
-
-  result.decls = nnkStmtList.newNimNode
-  if (let vars = ctx.createAuxilaryVars; vars.len != 0):
-    result.decls.add vars
-
-  let dispatcher = ctx.patchCaseDispatcher caseStmt
-  result.invoker = newStmtList:
+      (mctx.createCaseDispatcher retVar, mctx) # The order of access to `mctx` is important.
+    dispatcher = ctx.patchCaseDispatcher caseStmt
+  result.decls = ctx.createDeclarations
+  result.invoker =
     if dispatcher.isNil:
       # -> discard ...
       result.invocationWrapper = nnkDiscardStmt.newNimNode
@@ -388,12 +381,10 @@ func processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNod
     else:
       # -> let ret = ...
       result.invocationWrapper = nnkIdentDefs.newTree(retVar, newEmptyNode())
-      nnkLetSection.newTree result.invocationWrapper
-  if not ctx.resultVar.isNil:
-    # -> result = move(resultVar)
-    result.invoker.add ident"result".newAssignment bindSym"move".newCall ctx.resultVar
-  if not dispatcher.isNil:
-    result.invoker.add dispatcher
+      newStmtList(
+        nnkLetSection.newTree result.invocationWrapper,
+        dispatcher,
+      )
 
 macro awaitEach(iter: SomeAsyncIterator; originalBody: untyped; loopVars: varargs[untyped]) =
   ## Transform the loop body into an asynchronous procedure and run it.
