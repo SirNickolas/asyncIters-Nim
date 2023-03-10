@@ -13,8 +13,12 @@ proc main =
     iterator named1(): Future[int] {.used, asyncIter.} = discard
     # Anonymous iterators (and procedures) produce unhelpful stack traces. But they are supported
     # if you prefer conciseness over ease of debugging.
-    let unnamed0 {.used.} = iterator: Future[int] {.asyncIter.} = discard
-    let unnamed1 {.used.} = iterator (): Future[int] {.asyncIter.} = discard
+    let
+      unnamed0 {.used.} = iterator: Future[int] {.asyncIter.} = discard
+      unnamed1 {.used.} = iterator (): Future[int] {.asyncIter.} = discard
+      unnamed2 {.used.} = asyncIter(iterator: Future[int] = discard)
+      unnamed3 {.used.} = asyncIter:
+        (iterator: Future[int] = discard)
 
   test "can declare an async iterator inside a template":
     template declareIter =

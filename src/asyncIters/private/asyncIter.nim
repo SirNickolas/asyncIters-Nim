@@ -51,8 +51,8 @@ func desugarYields(iterBody, loopBodySym: NimNode) =
 func transformAsyncIterDefs(iterDef: NimNode): NimNode =
   ## Recursively process the statement list containing iterator definitions.
 
-  iterDef.expectKind {nnkIteratorDef, nnkStmtList}
-  if iterDef.kind == nnkStmtList:
+  iterDef.expectKind {nnkIteratorDef, nnkPar, nnkStmtList}
+  if iterDef.kind != nnkIteratorDef:
     for i, child in iterDef:
       iterDef[i] = child.transformAsyncIterDefs
     result = iterDef
