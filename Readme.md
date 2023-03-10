@@ -62,6 +62,44 @@ in mind.
 [asyncstreams]: https://nim-lang.org/docs/asyncstreams.html
 
 
+## Using with `chronos/asyncloop`
+
+This library is mainly compatible with [Chronos][], with two exceptions.
+
+1.  You cannot use the pragma syntax with `asyncIter`:
+
+    ```nim
+    # These don't work.
+    iterator myIter: Future[int] {.asyncIter.} =
+      discard
+
+    let myAnonIter = iterator: Future[int] {.asyncIter.} =
+      discard
+
+    # Use these instead:
+    asyncIter:
+      iterator myIter: Future[int] =
+        discard
+
+    let myAnonIter = asyncIter(iterator: Future[int] =
+      discard
+    )
+    ```
+
+    Upstream issue: [status-im/nim-chronos#367][].
+
+2.  You cannot `return` from an `awaitIter` loop — it produces a compilation error. As a workaround,
+    consider assigning to `result` and `break`ing from the loop. (Hint: you can wrap the whole body
+    of your procedure in a [labeled][block-stmt] `block` statement and break out of it.)
+
+    Upstream issue: [status-im/nim-chronos#368][].
+
+[Chronos]: https://github.com/status-im/nim-chronos
+[status-im/nim-chronos#367]: https://github.com/status-im/nim-chronos/issues/367
+[status-im/nim-chronos#368]: https://github.com/status-im/nim-chronos/issues/368
+[block-stmt]: https://nim-lang.org/docs/manual.html#statements-and-expressions-block-statement
+
+
 ## How it works
 
 `asyncIter` transforms the iterator definition to an async proc (which, ironically, will be
@@ -74,7 +112,7 @@ iterator countToTen: Future[int] {.asyncIter.} =
 
 # =>
 
-proc countToTen(body: proc (item: int): Future[uint32]): Future[uint32] {.async.} =
+proc countToTen(body: proc (item: int): Future[uint32] {.gcSafe.}): Future[uint32] {.async.} =
   for i in 0 ..< 10:
     if (let ret = await body i; ret != 0'u32):
       return ret
