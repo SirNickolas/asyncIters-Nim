@@ -212,11 +212,11 @@ func processReturnVal(mctx; val, magicStmts: NimNode): NimNode =
   mctx.plainReturnMagicCode.getOrAllocate nnkUInt32Lit.newNimNode
 
 func transformReturnStmt(mctx; ret: NimNode): NimNode =
-  let stmts = nnkStmtList.newNimNode
-  let val = mctx.processReturnVal(ret[0], magicStmts = stmts)
-  # -> {.asyncLoopMagic: val.}: ...; return asyncLoopMagicCode(val)
+  result = nnkStmtList.newNimNode
+  let val = mctx.processReturnVal(ret[0], magicStmts = result)
+  # -> ...; {.asyncLoopMagic: val.}: return asyncLoopMagicCode(val)
   ret[0] = mctx.magicCodeSym.newCall val
-  mctx.wrapWithMagic(val, stmts.add ret)
+  result.add mctx.wrapWithMagic(val, ret)
 
 func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool {.discardable.} =
   ## Recursively traverse the loop body and transform it. Return `true` iff current node should

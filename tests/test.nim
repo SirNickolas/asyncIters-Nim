@@ -367,7 +367,7 @@ proc main =
       yieldAsync 1
 
     proc run(flag: bool): string =
-      for x in 1 .. 1: # TODO.
+      for x in awaitIter one:
         check x == 1
         for y in awaitIter one:
           check y == 1
