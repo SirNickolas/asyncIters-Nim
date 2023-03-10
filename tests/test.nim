@@ -1,4 +1,5 @@
 from   std/asyncdispatch import waitFor
+import std/macros
 import std/unittest
 import asyncIters
 
@@ -287,14 +288,51 @@ proc main =
         check false
     check sum == 63
 
+  test "can have `proc` as a direct child of a loop":
+    # Usually, an `nnkForStmt` wraps an `nnkStmtList`. We have to write a macro to attach
+    # an `nnkProcDef` directly.
+    macro construct(iter: typed) =
+      result = quote do:
+        for i in awaitIter `iter`:
+          proc p: string = return "unused" # `return` is essential for this test.
+      result[2].expectKind nnkStmtList
+      result[2].expectLen 1
+      result[2] = result[2][0]
+
+    var ok = false
+    runAsync:
+      construct countUpAsync(1, 5)
+      ok = true
+    check ok
+
+  test "can have `break` as a direct child of a `block`":
+    # Usually, an `nnkBlockStmt` wraps an `nnkStmtList`. We have to write a macro to attach
+    # an `nnkBreakStmt` directly.
+    macro construct(n: int; iter: typed) =
+      result = quote do:
+        for i in awaitIter `iter`:
+          block blk:
+            break blk
+          `n` += 1
+      let blk = result[2][0]
+      blk.expectKind nnkBlockStmt
+      blk[1].expectKind nnkStmtList
+      blk[1].expectLen 1
+      blk[1] = blk[1][0]
+
+    var n = 0
+    runAsync:
+      construct n, countUpAsync(1, 5)
+    check n == 5
+
   test "customAsyncIterator can work with arbitrary type constructors":
-    type ArrayTypeConstructor = object
+    type ArrayTypeCtor = object
       len: int
 
-    template `[]`(ctor: ArrayTypeConstructor; T: typedesc): typedesc =
+    template `[]`(ctor: ArrayTypeCtor; T: typedesc): typedesc =
       array[ctor.len, T]
 
-    const arr10 = ArrayTypeConstructor(len: 10)
+    const arr10 = ArrayTypeCtor(len: 10)
     check (arr10[int] is array[10, int]) # Nim 1.4 requires parenthizing the expression.
     check (customAsyncIterator(int, arr10) is (
       # An implementation detail.

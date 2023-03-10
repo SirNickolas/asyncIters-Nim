@@ -226,33 +226,37 @@ func transformReturnStmt(mctx; ret: NimNode): NimNode =
   ret[0] = mctx.magicCodeSym.newCall val
   mctx.wrapWithMagic(val, stmts.add ret)
 
-func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool) =
-  # We should stop intercepting `break` and `continue` when descending into the last child
-  # of a nested loop. `block` statements are not treated specially since unlabeled `break`
-  # inside a `block` is deprecated and will change its meaning to what we already do now.
-  let loopBodyIndex = if tree.kind not_in {nnkForStmt, nnkWhileStmt}: -1 else: tree.len - 1
-  for i, node in tree:
-    if node.kind not_in RoutineNodes and not mctx.maybeTransformMagicReturn(node) and not (block:
+func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool {.discardable.} =
+  ## Recursively traverse the loop body and transform it. Return `true` iff current node should
+  ## not be processed further.
+
+  if tree.kind in RoutineNodes or mctx.maybeTransformMagicReturn tree:
+    return true
+  mctx.withMaybeNamedBlock tree:
+    # We should stop intercepting `break` and `continue` when descending into the last child
+    # of a nested loop. `block` statements are not treated specially since unlabeled `break`
+    # inside a `block` is deprecated and will change its meaning to what we already do now.
+    let loopBodyIndex = if tree.kind not_in {nnkForStmt, nnkWhileStmt}: -1 else: tree.len - 1
+    for i, node in tree:
       # Recurse.
-      mctx.withMaybeNamedBlock tree:
-        mctx.transformBody node, interceptBreakContinue and i != loopBodyIndex
-    ): # Not a routine definition, a magic return section, nor a named block.
-      tree[i] = case node.kind:
-        of nnkIdent:
-          if not node.eqIdent"result":
+      if not mctx.transformBody(node, interceptBreakContinue and i != loopBodyIndex):
+        # Not a routine definition, a magic return section, nor a named block.
+        tree[i] = case node.kind:
+          of nnkIdent:
+            if not node.eqIdent"result":
+              continue
+            mctx.resultSym.getOrAllocate genSym(nskTemplate, "result") # Must be named `result`.
+          of nnkBreakStmt:
+            mctx.transformBreakStmt(node, interceptBreakContinue)
+          of nnkContinueStmt:
+            if not interceptBreakContinue:
+              continue
+            # -> {.asyncLoopMagic: 0'u32.}: return asyncLoopMagicCode(0'u32)
+            mctx.newMagicReturn(mctx.zero, prototype = node)
+          of nnkReturnStmt:
+            mctx.transformReturnStmt node
+          else:
             continue
-          mctx.resultSym.getOrAllocate genSym(nskTemplate, "result") # Must be named `result`.
-        of nnkBreakStmt:
-          mctx.transformBreakStmt(node, interceptBreakContinue)
-        of nnkContinueStmt:
-          if not interceptBreakContinue:
-            continue
-          # -> {.asyncLoopMagic: 0'u32.}: return asyncLoopMagicCode(0'u32)
-          mctx.newMagicReturn(mctx.zero, prototype = node)
-        of nnkReturnStmt:
-          mctx.transformReturnStmt node
-        else:
-          continue
 
 func assignMagicCode(mctx; test: NimNode): NimNode =
   ## Allocate a new `uint32` value and assign it to `test`, which must be an `nnkUInt32Lit`.
@@ -364,7 +368,6 @@ func processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNod
     #. `invoker` (`nnkStmtList`) is the code that runs the loop and does some postprocessing;
     #. `invocationWrapper` (a descendant of `invoker`) is where the body invocation should be added.
   ]##
-  body.expectKind nnkStmtList
   let
     retVar = genSym(ident = "ret")
     (caseStmt, ctx) = block:
