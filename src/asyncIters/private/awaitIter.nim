@@ -60,14 +60,14 @@ type
     zero, one, magicSym, magicCodeSym: NimNode ## Immutable fields.
     maxMagicCode: uint32
     hasPlainBreak: bool
+    failedToReturnLit: bool
     knownNamedBlocks: Table[string, NamedBlock]
-    resultSym: NimNode ## `nnkSym` or `nil` if not allocated yet.
     # Fields for `return` support:
+    resultSym: NimNode ## `nnkSym` or `nil` if not allocated yet.
     plainReturnMagicCode: NimNode ## `nnkUInt32Lit` or `nil` if not allocated yet.
-    returnValMagicCode: NimNode ## `nnkUInt32Lit` or `nil` if not allocated yet.
+    returnLitMagicCode: NimNode ## `nnkUInt32Lit` or `nil` if not allocated yet.
     returnLit: NimNode ## One of `nnkLiterals` or `nnkNone` if can return different values.
     deferredReturnLists: seq[NimNode] ## `seq[nnkStmtList]`
-    loopResultSym: NimNode ## `nnkSym` or `nil` if not allocated yet.
     forwardedReturnStmt: NimNode ## Typically, `nnkStmtList`; or `nil` if not occurred.
 
 using
@@ -96,6 +96,9 @@ template getOrAllocate(lval, initializer: untyped): untyped =
     if tmp.isNil:
       tmp = initializer
       lval = tmp
+
+func createResult(mctx): NimNode =
+  mctx.resultSym.getOrAllocate genSym(nskTemplate, "result") # Must be named `result`.
 
 func newBareMagicReturn(ctx; val, prototype: NimNode): NimNode =
   # -> return asyncLoopMagicCode(val)
@@ -181,15 +184,11 @@ func transformBreakStmt(mctx; brk: NimNode; interceptPlainBreak: bool): NimNode 
 func canHandleReturnValLazily(mctx; val: NimNode): bool =
   ## Return `true` if `val` equals every other return value seen before.
 
-  if mctx.returnValMagicCode.isNil:
+  if mctx.returnLitMagicCode.isNil:
     # This is the first `return val` statement we've encountered.
-    mctx.returnValMagicCode = nnkUInt32Lit.newNimNode
-    # If `val` is a literal, remember it. Otherwise, remember a node that will not be equal
-    # to anything (unless someone maliciously constructs an AST with `nnkNone`...). We cannot use
-    # `nil` for that purpose since `==` is buggy: `newNilNode() == nil` is true.
-    (val.kind in nnkLiterals).asLet isSomeLit:
-      if isSomeLit:
-        mctx.returnLit = val
+    mctx.returnLitMagicCode = nnkUInt32Lit.newNimNode
+    mctx.returnLit = val # Remember it so that we can compare subsequent values against it.
+    val.kind in nnkLiterals
   else:
     # Check if it is the same literal we've seen the first time.
     val == mctx.returnLit
@@ -198,26 +197,19 @@ func processReturnVal(mctx; val, magicStmts: NimNode): NimNode =
   ## Process the value of a `return` statement, adding necessary statements to `magicStmts`,
   ## and return the magic code chosen for this statement.
 
-  if val.kind == nnkEmpty:
-    # A plain `return` statement.
-    mctx.plainReturnMagicCode.getOrAllocate nnkUInt32Lit.newNimNode
-  else:
+  if val.kind != nnkEmpty:
     # A `return val` statement.
-    if mctx.canHandleReturnValLazily val:
-      mctx.deferredReturnLists &= magicStmts
-    else:
-      let loopResultSym = mctx.loopResultSym.getOrAllocate:
-        # This is the first nontrivial `return val` statement we've encountered.
-        genSym(nskVar, "loopResult").asLet loopResultSym:
-          let seenLit = mctx.returnLit
-          mctx.returnLit = nnkNone.newNimNode # Forget it. From now on, we will always be eager.
-          # Patch statement lists we've deferred.
-          for deferred in mctx.deferredReturnLists:
-            # -> loopResult = seenLit
-            deferred.insert 0, loopResultSym.newAssignment seenLit
-      # -> loopResult = val
-      magicStmts.add loopResultSym.newAssignment val
-    mctx.returnValMagicCode
+    if not mctx.failedToReturnLit:
+      if mctx.canHandleReturnValLazily val:
+        mctx.deferredReturnLists &= magicStmts
+        return mctx.returnLitMagicCode
+
+      # This is the first nontrivial `return val` statement we've encountered.
+      mctx.failedToReturnLit = true
+    # -> result = val
+    magicStmts.add mctx.createResult.newAssignment val
+  # A plain `return` statement.
+  mctx.plainReturnMagicCode.getOrAllocate nnkUInt32Lit.newNimNode
 
 func transformReturnStmt(mctx; ret: NimNode): NimNode =
   let stmts = nnkStmtList.newNimNode
@@ -245,7 +237,7 @@ func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool {.di
           of nnkIdent:
             if not node.eqIdent"result":
               continue
-            mctx.resultSym.getOrAllocate genSym(nskTemplate, "result") # Must be named `result`.
+            mctx.createResult
           of nnkBreakStmt:
             mctx.transformBreakStmt(node, interceptBreakContinue)
           of nnkContinueStmt:
@@ -290,20 +282,34 @@ func createCaseDispatcher(mctx; retVar: NimNode): NimNode =
 
   # -> case ret
   result = nnkCaseStmt.newTree(retVar, nnkOfBranch.newNimNode) # A branch for `0, 1`.
+
   if not mctx.plainReturnMagicCode.isNil:
     # -> of ...: return
     result.add:
       mctx.assignMagicCode(mctx.plainReturnMagicCode).add nnkReturnStmt.newTree newEmptyNode()
-  if not mctx.returnValMagicCode.isNil:
-    # -> of ...: return loopResultSym
-    result.add:
-      mctx.assignMagicCode(mctx.returnValMagicCode).add:
-        nnkReturnStmt.newTree:
-          if mctx.returnLit.kind != nnkNone: mctx.returnLit else: mctx.loopResultSym
+
+  if not mctx.returnLitMagicCode.isNil:
+    if not mctx.failedToReturnLit:
+      # -> of ...: return returnLit
+      result.add:
+        mctx.assignMagicCode(mctx.returnLitMagicCode).add nnkReturnStmt.newTree mctx.returnLit
+    else:
+      # We were hoping to return a literal first but abandoned that idea. All `return` statements
+      # we've managed to generate under that optimistic assumption should use the same magic code
+      # as statements generated afterwards.
+      mctx.returnLitMagicCode.intVal = mctx.plainReturnMagicCode.intVal
+      # Patch statements we've deferred.
+      let resultSym = mctx.resultSym
+      let initiallySeenLit = mctx.returnLit
+      for deferred in mctx.deferredReturnLists:
+        # -> result = initiallySeenLit
+        deferred.insert 0, resultSym.newAssignment initiallySeenLit
+
   for blk in mctx.knownNamedBlocks.values:
     if not blk.magicCode.isNil:
       # -> of ...: break ...
       result.add mctx.assignMagicCode(blk.magicCode).add(blk.breakStmt)
+
   if not mctx.forwardedReturnStmt.isNil:
     # -> else: ...
     result.add nnkElse.newTree mctx.replaceMagicCode(mctx.forwardedReturnStmt, repl = retVar)
@@ -345,21 +351,14 @@ func patchCaseDispatcher(ctx; caseStmt: NimNode): NimNode =
 func createDeclarations(ctx): NimNode =
   ## Generate declarations that must be visible to the loop body.
 
-  result = nnkStmtList.newNimNode
-  if not ctx.loopResultSym.isNil:
-    # -> var loopResult: typeOf(result)
-    result.add nnkVarSection.newTree newIdentDefs(
-      ctx.loopResultSym,
-      bindSym"typeOf".newCall ident"result", # Might be incorrect if `result` is shadowed.
-    )
-  if not ctx.resultSym.isNil:
-    # -> template forwarded: untyped = result
-    result.add newProc(
-      procType = nnkTemplateDef,
-      name = ctx.resultSym,
-      params = [bindSym"untyped"],
-      body = ident"result",
-    )
+  if ctx.resultSym.isNil:
+    nnkStmtList.newNimNode
+  else:
+    let resultSym = ctx.resultSym
+    quote do:
+      # We have to capture the address to avoid the compilation error regarding memory safety.
+      let resultAddr = addr result
+      template `resultSym`: untyped = resultAddr[]
 
 func processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNode] =
   ##[

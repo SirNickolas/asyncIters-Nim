@@ -130,7 +130,7 @@ proc main =
         sum += i.sqr
     check sum == 1 + 4 + 9
 
-  test "can `continue` a loop":
+  test "can continue a loop":
     var sum = 0
     runAsync:
       for i in awaitIter countUpAsync(1, 10):
@@ -140,7 +140,7 @@ proc main =
       sum += 100
     check sum == (1 + 2 + 3) + (5 + 6 + 7) + 9 + 10 + 100
 
-  test "can `break` from a loop":
+  test "can break from a loop":
     var sum = 0
     runAsync:
       for i in awaitIter countUpAsync(1, 10):
@@ -150,7 +150,7 @@ proc main =
       sum += 100
     check sum == 1 + 2 + 3 + 100
 
-  test "can `return` from a loop":
+  test "can return from a loop":
     var sum = 0
     runAsync:
       for i in awaitIter countUpAsync(1, 10):
@@ -160,7 +160,7 @@ proc main =
       check false
     check sum == 1 + 2 + 3
 
-  test "can `return` a value from a loop":
+  test "can return a value from a loop":
     var sum = 0
 
     proc run: Future[int] {.async.} =
@@ -230,7 +230,7 @@ proc main =
     check waitFor(run()) == "ok"
     check sum == 2170
 
-  test "can `return` an implicit `result` from a nested loop":
+  test "can return an implicit `result` from a nested loop":
     var sum = 0
 
     proc run: Future[string] {.async.} =
@@ -246,7 +246,7 @@ proc main =
     check waitFor(run()) == "ok"
     check sum == 416
 
-  test "can `break` from a named block":
+  test "can break from a named block":
     var sum = 0
     runAsync:
       block outer:
@@ -356,5 +356,26 @@ proc main =
       # An implementation detail.
       proc (body: proc (item: int): array[10, uint32]): array[10, uint32]
     ))
+
+  test "can return different values from a nested loop":
+    # This test requires a custom async backend:
+    type Identity[T] = T
+    template async {.pragma.}
+    template await(x: typed): untyped = x
+
+    iterator one: Identity[int] {.asyncIter.} =
+      yieldAsync 1
+
+    proc run(flag: bool): string =
+      for x in 1 .. 1: # TODO.
+        check x == 1
+        for y in awaitIter one:
+          check y == 1
+          if flag:
+            return "yes"
+          return "no" # Having two separate `return` statements is essential for this test.
+
+    check run(true) == "yes"
+    check run(false) == "no"
 
 main()
