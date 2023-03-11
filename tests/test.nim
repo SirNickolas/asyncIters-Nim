@@ -130,6 +130,34 @@ proc main =
         sum += i.sqr
     check sum == 1 + 4 + 9
 
+  test "can yield from a template declared inside an async iterator":
+    iterator produce1122: Future[int] {.asyncIter.} =
+      template yieldTwice(x: int) =
+        yieldAsync x
+        yieldAsync x
+
+      yieldTwice 1
+      yieldTwice 2
+
+    var n = 0
+    runAsync:
+      for i in awaitIter produce1122:
+        check i in 1 .. 2
+        n += 1
+    check n == 4
+
+  test "can continue from a template declared inside a loop":
+    var n = 0
+    runAsync:
+      for i in awaitIter countUpAsync(1, 5):
+        template continueIfSmall(x: int) =
+          if x <= 2:
+            continue
+
+        continueIfSmall i
+        n += 1
+    check n == 3
+
   test "can continue a loop":
     var sum = 0
     runAsync:
@@ -367,10 +395,10 @@ proc main =
       yieldAsync 1
 
     proc run(flag: bool): string =
-      for x in awaitIter one:
-        check x == 1
-        for y in awaitIter one:
-          check y == 1
+      for i in awaitIter one:
+        check i == 1
+        for j in awaitIter one:
+          check j == 1
           if flag:
             return "yes"
           return "no" # Having two separate `return` statements is essential for this test.

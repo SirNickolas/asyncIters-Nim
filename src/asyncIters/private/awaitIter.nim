@@ -222,7 +222,7 @@ func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool {.di
   ## Recursively traverse the loop body and transform it. Return `true` iff current node should
   ## not be processed further.
 
-  if tree.kind in RoutineNodes or mctx.maybeTransformMagicReturn tree:
+  if tree.kind in RoutineNodes - {nnkTemplateDef} or mctx.maybeTransformMagicReturn tree:
     return true
   mctx.withMaybeNamedBlock tree:
     # We should stop intercepting `break` and `continue` when descending into the last child

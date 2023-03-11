@@ -21,7 +21,7 @@ func desugarYields(iterBody, loopBodySym: NimNode) =
 
   func recurse(node: NimNode) =
     for i, child in node:
-      if child.kind not_in RoutineNodes: # Do not descend into nested procedures.
+      if child.kind not_in RoutineNodes - {nnkTemplateDef}: # Do not descend into nested procedures.
         child.recurse
       if child.kind in CallNodes:
         let callee = child[0]
