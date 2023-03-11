@@ -340,7 +340,7 @@ proc main =
     macro construct(iter: typed) =
       result = quote do:
         for i in awaitIter `iter`:
-          proc p: string = return "unused" # `return` is essential for this test.
+          proc p: string {.used.} = return "unused" # `return` is essential for this test.
       result[2].expectKind nnkStmtList
       result[2].expectLen 1
       result[2] = result[2][0]

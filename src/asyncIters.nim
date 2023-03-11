@@ -53,8 +53,12 @@ elif backend == "chronos":
   exportWhenDeclared chr.internalRead
 
 when defined nimdoc:
+  {.push.}
+  when (NimMajor, NimMinor) >= (1, 6):
+    {.hint[DuplicateModuleImport]: off.}
   include ./asyncIters/private/asyncIter
   include ./asyncIters/private/awaitIter
+  {.pop.}
 else:
   from ./asyncIters/private/asyncIter import nil
   from ./asyncIters/private/awaitIter import customAsyncIterator
@@ -62,11 +66,13 @@ else:
   export asyncIter, awaitIter
 
 when declared Future:
+  when (NimMajor, NimMinor) >= (1, 9):
+    {.warning[AmbiguousLink]: off.} # `customAsyncIterator`
   type AsyncIterator*[T] = customAsyncIterator(T, Future)
     ##[
       Type of async iterators after they are processed.
 
-      This type is not declared if you pass `-d=asyncBackend=none`:option: (or some unrecognized
+      This type is not declared if you pass `-d=asyncBackend:none`:option: (or some unrecognized
       backend name) to the compiler. Known backends include `asyncdispatch`_ (used by default
       if not set explicitly) and `chronos`_. If you’d like to use `asyncIters` with a backend that
       did not exist at the moment of writing, you need to use `customAsyncIterator`_ and specify
