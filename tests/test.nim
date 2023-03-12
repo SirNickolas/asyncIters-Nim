@@ -375,7 +375,7 @@ proc main =
     type ArrayTypeCtor = object
       len: int
 
-    template `[]`(ctor: ArrayTypeCtor; T: typedesc): typedesc =
+    template `[]`(ctor: ArrayTypeCtor; T: type): type =
       array[ctor.len, T]
 
     const arr10 = ArrayTypeCtor(len: 10)

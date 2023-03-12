@@ -6,7 +6,7 @@ from   ./utils import copyLineInfoTo, morphInto
 
 type SomeAsyncIterator[T; F] = proc (body: proc (item: T): F {.gcSafe.}): F {.gcSafe.}
 
-template customAsyncIterator*(T: typedesc; fut: typed): typedesc =
+template customAsyncIterator*(T: type; fut: typed): type =
   ##[
     Type of async iterators after they are processed. `T` is the type of values an iterator yields;
     `fut` is the future type constructor those values are wrapped with. The only requirement

@@ -83,6 +83,6 @@ when declared Future:
 
       .. _asyncdispatch: https://nim-lang.org/docs/asyncdispatch.html
       .. _chronos: https://github.com/status-im/nim-chronos
-      .. _customAsyncIterator: #customAsyncIterator.t,typedesc,typed
+      .. _customAsyncIterator: #customAsyncIterator.t,type,typed
       .. _Future: https://nim-lang.org/docs/asyncfutures.html
     ]##
