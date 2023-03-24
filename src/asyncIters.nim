@@ -26,7 +26,7 @@ runnableExamples:
 
 from std/strutils import normalize
 
-template exportWhenDeclared(symbol: untyped) =
+template exportWhenDeclared(symbol: untyped) {.used.} =
   when declared symbol:
     export symbol
 
