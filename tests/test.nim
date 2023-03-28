@@ -146,6 +146,34 @@ proc main =
         n += 1
     check n == 4
 
+  test "can yield from a template declared outside an async iterator":
+    template yieldTwice(x: int) =
+      yieldAsync x
+      yieldAsyncFrom countUpAsync(x, x)
+
+    iterator produce1122: Future[int] {.asyncIter.} =
+      yieldTwice 1
+      yieldTwice 2
+
+    var n = 0
+    runAsync:
+      for i in awaitIter produce1122:
+        check i in 1 .. 2
+        n += 1
+    check n == 4
+
+  test "can redeclare `yieldAsync`":
+    iterator nop: Future[int] {.asyncIter.} =
+      template yieldAsync(x: typed) = discard
+
+      yieldAsync 1
+
+    var n = 0
+    runAsync:
+      for i in awaitIter nop:
+        n += 1
+    check n == 0
+
   test "can continue from a template declared inside a loop":
     var n = 0
     runAsync:

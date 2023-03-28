@@ -5,80 +5,57 @@ func checkReturnType(params: NimNode): NimNode =
   ## Extract the return type from iterator’s params and validate it’s some kind of `Future[T]`.
 
   result = params[0]
-  if not (
-    (result.kind == nnkBracketExpr and result.len == 2) or
-    (result.kind in CallNodes and result.len == 3 and result[0].eqIdent"[]")
+  if not `or`(
+    result.kind == nnkBracketExpr and result.len == 2,
+    result.kind in CallNodes and result.len == 3 and result[0].eqIdent"[]",
   ):
     error "async iterator must yield Future[T]", result or params
 
-func desugarYields(iterBody, loopBodySym: NimNode) =
-  ## Recursively traverse `iterBody` and transform `yieldAsync` and `yieldAsyncFrom` calls.
+func transformIterDef(iterDef: NimNode): NimNode =
+  ## Turn an `iterator` into an async `proc`.
 
+  let params = iterDef[3]
+  if params.len != 1:
+    error(
+      "parameterized async iterators are currently unsupported." &
+      " You can probably achieve what you are trying to by wrapping the iterator in a proc",
+      params,
+    )
   let
-    retSym = genSym(ident = "ret")
-    await = ident"await"
-    zero = newLit 0'u32
+    returnType = params.checkReturnType
+    yieldType = returnType[^1]
+    bodySym = genSym(nskParam, "body")
+    itemSym = ident"item" # For friendlier error messages.
+    iterBody = iterDef[6]
+  returnType[^1] = bindSym"uint32"
 
-  func recurse(node: NimNode) =
-    for i, child in node:
-      if child.kind not_in RoutineNodes - {nnkTemplateDef}: # Do not descend into nested procedures.
-        child.recurse
-      if child.kind in CallNodes:
-        let callee = child[0]
-        let (sink, arg) =
-          if callee.eqIdent"yieldAsync":
-            if child.len == 1:
-              error "need a value to yield", child
-            (loopBodySym, # Will invoke loop body with the yielded values.
-              if child.len == 2:
-                child[1] # A single yielded value.
-              else:
-                child.morphInto(nnkTupleConstr, 1) # Collect values into a tuple.
-            )
-          elif callee.eqIdent"yieldAsyncFrom":
-            if child.len != 2:
-              error "need a single async iterator to yield from", child
-            (child[1], loopBodySym) # Will invoke another iterator with the loop body.
-          else:
-            continue
+  result = iterDef.morphInto nnkProcDef
+  params.add (quote do:
+    let `bodySym`: proc (`itemSym`: `yieldType`): `returnType` {.gcSafe.}
+  )[0]
+  result.addPragma ident"async" # An open symbol to allow custom `async` implementations.
+  result[6] = quote do:
+    template yieldAsync(value: typed) {.used.} =
+      if (let ret = await `bodySym` value; ret != 0'u32):
+        return ret
 
-        node[i] = child.copyLineInfoTo quote do:
-          if (let `retSym` = `await` `sink` `arg`; `retSym` != `zero`):
-            return `retSym`
+    template yieldAsyncFrom(iter: typed) {.used.} =
+      if (let ret = await iter `bodySym`; ret != 0'u32):
+        return ret
 
-  iterBody.recurse
+    block:
+      `iterBody`
 
-func transformAsyncIterDefs(iterDef: NimNode): NimNode =
+func transformIterList(node: NimNode): NimNode =
   ## Recursively process the statement list containing iterator definitions.
 
-  iterDef.expectKind {nnkIteratorDef, nnkPar, nnkStmtList}
-  if iterDef.kind != nnkIteratorDef:
-    for i, child in iterDef:
-      iterDef[i] = child.transformAsyncIterDefs
-    result = iterDef
+  node.expectKind {nnkIteratorDef, nnkPar, nnkStmtList}
+  if node.kind == nnkIteratorDef:
+    node.transformIterDef
   else:
-    # A single iterator definition.
-    let params = iterDef.params
-    if params.len != 1:
-      error(
-        "parameterized async iterators are currently unsupported." &
-        " You can probably achieve what you are trying to by wrapping the iterator in a proc",
-        params,
-      )
-    let
-      returnType = params.checkReturnType
-      yieldType = returnType[^1]
-      bodySym = genSym(nskParam, "body")
-      itemSym = ident"item" # For friendlier error messages.
-    returnType[^1] = bindSym"uint32"
-
-    # Turn the `iterator` into a `proc`.
-    result = iterDef.morphInto nnkProcDef
-    params.add (quote do:
-      let `bodySym`: proc (`itemSym`: `yieldType`): `returnType` {.gcSafe.}
-    )[0]
-    result.addPragma ident"async" # An open symbol to allow custom `async` implementations.
-    result.body.desugarYields bodySym
+    for i, child in node:
+      node[i] = child.transformIterList
+    node
 
 macro asyncIter*(iterDef: untyped): untyped =
   ##[
@@ -87,6 +64,21 @@ macro asyncIter*(iterDef: untyped): untyped =
     This macro can be applied to either individual iterator definitions (`{.asyncIter.}`) or entire
     sections of code containing them (`asyncIter:`).
   ]##
-  result = iterDef.transformAsyncIterDefs
+  result = iterDef.transformIterList
   when defined asyncIters_debugAsync:
     echo result.repr
+
+# We must provide at least two overloads so that `yieldAsync` is treated as an open symbol
+# by default. Otherwise, users would have to `mixin yieldAsync` to access it from templates.
+template yieldAsync* {.error: "need a value to yield".} = discard
+
+macro yieldAsync*(firstValue: typed; values: varargs[typed]): untyped =
+  ## Transfer control to the caller of the async iterator. If several values are passed, they
+  ## are wrapped in a tuple.
+
+  if values.len == 0:
+    error "yieldAsync outside an async iterator", firstValue
+  let tup = nnkTupleConstr.newNimNode(firstValue).add(firstValue)
+  for arg in values:
+    tup.add arg
+  bindSym("yieldAsync", brOpen).newCall(tup)
