@@ -3,7 +3,6 @@ from   ./utils import copyLineInfoTo, morphInto
 
 func checkReturnType(params: NimNode): NimNode =
   ## Extract the return type from iterator’s params and validate it’s some kind of `Future[T]`.
-
   result = params[0]
   if not `or`(
     result.kind == nnkBracketExpr and result.len == 2,
@@ -13,7 +12,6 @@ func checkReturnType(params: NimNode): NimNode =
 
 func transformIterDef(iterDef: NimNode): NimNode =
   ## Turn an `iterator` into an async `proc`.
-
   let params = iterDef[3]
   if params.len != 1:
     error(
@@ -48,7 +46,6 @@ func transformIterDef(iterDef: NimNode): NimNode =
 
 func transformIterList(node: NimNode): NimNode =
   ## Recursively process the statement list containing iterator definitions.
-
   node.expectKind {nnkIteratorDef, nnkPar, nnkStmtList}
   if node.kind == nnkIteratorDef:
     node.transformIterDef
@@ -78,7 +75,6 @@ template yieldAsync*(phantom: Inaccessible)
 macro yieldAsync*(values: varargs[typed]): untyped =
   ## Transfer control to the caller of the async iterator. If several values are passed, they
   ## are wrapped in a tuple.
-
   case values.len:
     of 0: error "need a value to yield", values
     of 1: error "yieldAsync outside an async iterator", values

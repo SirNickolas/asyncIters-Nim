@@ -17,7 +17,6 @@ template customAsyncIterator*(T: type; fut: typed): type =
 func safeSignature(node: NimNode): string =
   ## Return a string that uniquely identifies the node (which must be either `nnkIdent`
   ## or `nnkSym`).
-
   if node.kind == nnkIdent:
     node.strVal.nimIdentNormalize.asVar: &= '.' # Period prevents clashing with symbols.
   else:
@@ -27,7 +26,6 @@ func safeSignature(node: NimNode): string =
 func prepareLoopVarAndBody(loopVars, body: NimNode): (NimNode, NimNode) =
   ## Extract loop variable from an `Arglist`. If there are several variables, create a tuple
   ## parameter and generate code that unpacks it.
-
   let tupleParam = genSym(nskParam, "item")
   let section = nnkLetSection.newNimNode
   if loopVars.len == 1:
@@ -91,7 +89,6 @@ func initContext: Context =
 
 template getOrAllocate(lval, initializer: untyped): untyped =
   ## If `lval` is not nil, return it. Otherwise, evaluate `initializer` and assign to `lval`.
-
   lval.asVar tmp:
     if tmp.isNil:
       tmp = initializer
@@ -118,7 +115,6 @@ func newMagicReturn(ctx; val, prototype: NimNode): NimNode =
 func maybeEnterNamedBlock(mctx; node: NimNode): string =
   ## If `node` is a named `block` statement or expression, remember it in the context and return
   ## the signature of its name. Otherwise, do nothing and return an empty string.
-
   if node.kind in {nnkBlockStmt, nnkBlockExpr}:
     let name = node[0]
     if name.kind != nnkEmpty:
@@ -128,14 +124,12 @@ func maybeEnterNamedBlock(mctx; node: NimNode): string =
 func maybeLeaveNamedBlock(mctx; signature: string): bool {.discardable.} =
   ## Unless `signature` is an empty string, unregister the named block it refers to from the context
   ## and return `true`. Otherwise, return `false`.
-
   result = signature.len != 0
   if result:
     mctx.knownNamedBlocks[signature].nestedDefs -= 1
 
 template withMaybeNamedBlock(mctx: Context; node: NimNode; body: untyped): bool =
   ## Evaluate `body` with proper bookkeeping. Return `true` iff `node` is a named block.
-
   let signature = mctx.maybeEnterNamedBlock node
   body
   mctx.maybeLeaveNamedBlock signature
@@ -143,7 +137,6 @@ template withMaybeNamedBlock(mctx: Context; node: NimNode; body: untyped): bool 
 func maybeTransformMagicReturn(mctx; node: NimNode): bool =
   ## If `node` is an `{.asyncLoopMagic: ...'u32.}: ...` pragma block, process it and return `true`.
   ## Otherwise, return `false`.
-
   if node.kind == nnkPragmaBlock:
     for pragma in node[0]:
       if pragma.kind in {nnkExprColonExpr} + CallNodes and pragma[0] == mctx.magicSym:
@@ -183,7 +176,6 @@ func transformBreakStmt(mctx; brk: NimNode; interceptPlainBreak: bool): NimNode 
 
 func canHandleReturnValLazily(mctx; val: NimNode): bool =
   ## Return `true` if `val` equals every other return value seen before.
-
   if mctx.returnLitMagicCode.isNil:
     # This is the first `return val` statement we've encountered.
     mctx.returnLitMagicCode = nnkUInt32Lit.newNimNode
@@ -196,7 +188,6 @@ func canHandleReturnValLazily(mctx; val: NimNode): bool =
 func processReturnVal(mctx; val, magicStmts: NimNode): NimNode =
   ## Process the value of a `return` statement, adding necessary statements to `magicStmts`,
   ## and return the magic code chosen for this statement.
-
   if val.kind != nnkEmpty:
     # A `return val` statement.
     if not mctx.failedToReturnLit:
@@ -221,7 +212,6 @@ func transformReturnStmt(mctx; ret: NimNode): NimNode =
 func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool =
   ## Recursively traverse the loop body and transform it. Return `true` iff current node should
   ## not be processed further.
-
   if tree.kind in RoutineNodes - {nnkTemplateDef} or mctx.maybeTransformMagicReturn tree:
     return true
   mctx.withMaybeNamedBlock tree:
@@ -253,7 +243,6 @@ func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool =
 func assignMagicCode(mctx; test: NimNode): NimNode =
   ## Allocate a new `uint32` value and assign it to `test`, which must be an `nnkUInt32Lit`.
   ## Return an `nnkOfBranch` with `test` as its first child.
-
   let code = mctx.maxMagicCode + 1
   mctx.maxMagicCode = code
   test.intVal = code.BiggestInt
@@ -261,7 +250,6 @@ func assignMagicCode(mctx; test: NimNode): NimNode =
 
 func replaceMagicCode(ctx; tree, repl: NimNode): NimNode =
   ## Traverse `tree` and replace `asyncLoopMagicCode(...)` with `repl`.
-
   let magic = ctx.magicCodeSym
   if tree.kind in CallNodes and tree[0] == magic:
     repl
@@ -317,7 +305,6 @@ func createCaseDispatcher(mctx; retVar: NimNode): NimNode =
 func patchCaseDispatcher(ctx; caseStmt: NimNode): NimNode =
   ## Transform the `case` statement made by `createCaseDispatcher` into the most appropriate form.
   ## May return `nil` if a dispatcher is not needed at all.
-
   case caseStmt.len:
     of 2:
       nil # Can ignore the return code.
@@ -350,7 +337,6 @@ func patchCaseDispatcher(ctx; caseStmt: NimNode): NimNode =
 
 func createDeclarations(ctx): NimNode =
   ## Generate declarations that must be visible to the loop body.
-
   if ctx.resultSym.isNil:
     nnkStmtList.newNimNode
   else:
@@ -392,7 +378,6 @@ func processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNod
 
 macro awaitEach(iter: SomeAsyncIterator; originalBody: untyped; loopVars: varargs[untyped]) =
   ## Transform the loop body into an asynchronous procedure and run it.
-
   let
     (futureType, yieldType) = block:
       let params = iter.getTypeImpl[0]
@@ -419,13 +404,11 @@ macro awaitEach(iter: SomeAsyncIterator; originalBody: untyped; loopVars: vararg
 
 macro awaitEach(iter: typed; loopBodyAndVars: varargs[untyped]) =
   ## An overload that emits a helpful error message when `iter` has incorrect type.
-
   error "awaitIter expects an async iterator, got " & iter.getTypeInst.repr, iter
 
 macro awaitIter*(loop: ForLoopStmt) =
   ## Iterate over an async iterator. Like regular `await`, this can only occur in procedures
   ## marked with `{.async.}` or `{.asyncIter.}`.
-
   let invocation = loop[^2] # `awaitIter(...)`
   invocation.expectLen 2
   # Rewrite the loop into `awaitEach` call.
