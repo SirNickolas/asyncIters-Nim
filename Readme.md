@@ -28,7 +28,8 @@ because it is reserved in async procedures to mean, “wait for a future to fini
 error handling.”
 
 `yieldAsyncFrom` allows to delegate iteration to another async iterator. It is semantically
-equivalent to `for x in awaitIter another: yieldAsync x` but is more efficient:
+equivalent to  
+`for x in awaitIter another: yieldAsync x` but is more efficient:
 
 ```nim
 func countUpAsync(a, b: int; step = 1): auto =
