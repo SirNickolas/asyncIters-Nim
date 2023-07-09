@@ -7,5 +7,6 @@ srcDir = "src"
 
 requires(
   "nim >= 1.4.0",
+  # "chronos", # Just for running tests with it.
   "letUtils >= 1.1.1 & < 2.0.0",
 )

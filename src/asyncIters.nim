@@ -24,15 +24,11 @@ runnableExamples:
 
   waitFor test()
 
-from std/strutils import normalize
+from ./asyncIters/cfg import backend
 
 template exportWhenDeclared(symbol: untyped) {.used.} =
   when declared symbol:
     export symbol
-
-const
-  asyncBackend {.strDefine.} = "asyncdispatch"
-  backend = asyncBackend.normalize
 
 when backend == "asyncdispatch":
   from std/asyncdispatch import nil
@@ -44,13 +40,14 @@ when backend == "asyncdispatch":
 elif backend == "chronos":
   from chronos/asyncloop as chr import Future
 
-  # Until https://github.com/status-im/nim-chronos/pull/350 is merged, we reexport only the bare
-  # minimum necessary to compile async procedures.
+  # Export the bare minimum necessary to compile async procedures with older `chronos` versions,
+  # plus the shiny new `chronos/futures` API if it is available.
   export Future, chr.FutureBase, chr.async, chr.complete, chr.newFuture
   exportWhenDeclared chr.await
   exportWhenDeclared chr.futureContinue
   exportWhenDeclared chr.internalCheckComplete
   exportWhenDeclared chr.internalRead
+  exportWhenDeclared chr.futures # https://github.com/status-im/nim-chronos/pull/405
 
 when defined nimdoc:
   {.push.}

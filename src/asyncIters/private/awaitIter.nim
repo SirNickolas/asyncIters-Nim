@@ -83,8 +83,8 @@ template asyncLoopMagicCode(code: uint32): uint32 = code
 func initContext: Context =
   Context(
     zero: newLit 0'u32,
-    one: newLit 1'u32,
-    magicSym: bindSym"asyncLoopMagic",
+    one:  newLit 1'u32,
+    magicSym:     bindSym"asyncLoopMagic",
     magicCodeSym: bindSym"asyncLoopMagicCode",
     maxMagicCode: 1, # 0 is reserved for `continue`; 1 is reserved for `break`.
   )
@@ -146,7 +146,7 @@ func maybeTransformMagicReturn(mctx; node: NimNode): bool =
 
   if node.kind == nnkPragmaBlock:
     for pragma in node[0]:
-      if pragma.kind in {nnkExprColonExpr, nnkCall} and pragma[0] == mctx.magicSym:
+      if pragma.kind in {nnkExprColonExpr} + CallNodes and pragma[0] == mctx.magicSym:
         # We've found our `asyncLoopMagic` pragma in the loop body passed to us. That means we are
         # a nested loop - the pragma was put by an outer `awaitIter` invocation.
         if mctx.forwardedReturnStmt.isNil:
@@ -218,7 +218,7 @@ func transformReturnStmt(mctx; ret: NimNode): NimNode =
   ret[0] = mctx.magicCodeSym.newCall val
   result.add mctx.wrapWithMagic(val, ret)
 
-func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool {.discardable.} =
+func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool =
   ## Recursively traverse the loop body and transform it. Return `true` iff current node should
   ## not be processed further.
 
@@ -285,14 +285,14 @@ func createCaseDispatcher(mctx; retVar: NimNode): NimNode =
 
   if not mctx.plainReturnMagicCode.isNil:
     # -> of ...: return
-    result.add:
-      mctx.assignMagicCode(mctx.plainReturnMagicCode).add nnkReturnStmt.newTree newEmptyNode()
+    result.add mctx.assignMagicCode(mctx.plainReturnMagicCode).add do:
+      nnkReturnStmt.newTree newEmptyNode()
 
   if not mctx.returnLitMagicCode.isNil:
     if not mctx.failedToReturnLit:
       # -> of ...: return returnLit
-      result.add:
-        mctx.assignMagicCode(mctx.returnLitMagicCode).add nnkReturnStmt.newTree mctx.returnLit
+      result.add mctx.assignMagicCode(mctx.returnLitMagicCode).add do:
+        nnkReturnStmt.newTree mctx.returnLit
     else:
       # We were hoping to return a literal first but abandoned that idea. All `return` statements
       # we've managed to generate under that optimistic assumption should use the same magic code
@@ -355,10 +355,12 @@ func createDeclarations(ctx): NimNode =
     nnkStmtList.newNimNode
   else:
     let resultSym = ctx.resultSym
-    quote do:
+    quote:
       # We have to capture the address to avoid the compilation error regarding memory safety.
       let resultAddr = addr result
-      template `resultSym`: untyped = resultAddr[]
+      # Syntactical presence of `result` in the body does not guarantee it is actually accessed
+      # so we need `{.used.}`.
+      template `resultSym`: untyped {.used.} = resultAddr[]
 
 func processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNode] =
   ##[
@@ -371,7 +373,7 @@ func processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNod
     retVar = genSym(ident = "ret")
     (caseStmt, ctx) = block:
       var mctx = initContext()
-      mctx.transformBody(body, interceptBreakContinue = true)
+      discard mctx.transformBody(body, interceptBreakContinue = true)
       (mctx.createCaseDispatcher retVar, mctx) # The order of access to `mctx` is important.
     dispatcher = ctx.patchCaseDispatcher caseStmt
   result.decls = ctx.createDeclarations

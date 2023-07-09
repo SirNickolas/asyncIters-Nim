@@ -1,7 +1,14 @@
-from   std/asyncdispatch import waitFor
 import std/macros
 import std/unittest
 import asyncIters
+from   asyncIters/cfg as asyncCfg import nil
+
+const chronosBackend = asyncCfg.backend == "chronos"
+
+when chronosBackend:
+  from chronos/asyncloop import waitFor
+else:
+  from std/asyncdispatch import waitFor
 
 template runAsync(body: untyped) =
   proc run {.genSym, async.} = body
@@ -9,27 +16,29 @@ template runAsync(body: untyped) =
 
 proc main =
   test "can declare an async iterator":
-    iterator named0: Future[int] {.asyncIter, used.} = discard
-    iterator named1(): Future[int] {.used, asyncIter.} = discard
-    # Anonymous iterators (and procedures) produce unhelpful stack traces. But they are supported
-    # if you prefer conciseness over ease of debugging.
-    let
-      unnamed0 {.used.} = iterator: Future[int] {.asyncIter.} = discard
-      unnamed1 {.used.} = iterator (): Future[int] {.asyncIter.} = discard
-      unnamed2 {.used.} = asyncIter(iterator: Future[int] = discard)
-      unnamed3 {.used.} = asyncIter:
-        (iterator: Future[int] = discard)
+    when not chronosBackend: # https://github.com/status-im/nim-chronos/issues/367
+      iterator named0: Future[int] {.asyncIter, used.} = discard
+      iterator named1(): Future[int] {.used, asyncIter.} = discard
+      # Anonymous iterators (and procedures) produce unhelpful stack traces. But they are supported
+      # if you prefer conciseness over ease of debugging.
+      let unnamed0 {.used.} = iterator: Future[int] {.asyncIter.} = discard
+      let unnamed1 {.used.} = iterator (): Future[int] {.asyncIter.} = discard
+    let unnamed2 {.used.} = asyncIter(iterator: Future[int] = discard)
+    let unnamed3 {.used.} = asyncIter:
+      (iterator: Future[int] = discard)
 
   test "can declare an async iterator inside a template":
     template declareIter =
-      iterator nop: Future[int] {.asyncIter, used.} = discard
+      asyncIter:
+        iterator nop: Future[int] {.used.} = discard
 
     declareIter
 
   test "can iterate over an async iterator":
-    iterator produce2: Future[int] {.asyncIter.} =
-      yieldAsync 2
-      yieldAsync 2
+    asyncIter:
+      iterator produce2: Future[int] =
+        yieldAsync 2
+        yieldAsync 2
 
     var n = 0
     runAsync:
@@ -40,9 +49,10 @@ proc main =
 
   test "async iterator can close over variables in its scope":
     func countUpTo(n: int): AsyncIterator[int] =
-      iterator countUpTo: Future[int] {.asyncIter.} =
-        for i in 0 ..< n:
-          yieldAsync i
+      asyncIter:
+        iterator countUpTo: Future[int] =
+          for i in 0 ..< n:
+            yieldAsync i
 
       result = countUpTo
 
@@ -55,17 +65,19 @@ proc main =
   func countUpAsync(a, b: int; step = 1): auto =
     ## A simple iterator for tests. Like `countUp`, but pretends to be asynchronous.
 
-    result = iterator: Future[int] {.asyncIter.} =
+    result = asyncIter(iterator: Future[int] =
       for i in countUp(a, b, step):
         yieldAsync i
+    )
 
   test "can yield from another async iterator":
     func evensAndOdds(a, b: int): auto =
       let evens = countUpAsync(a, b, 2)
       let odds  = countUpAsync(a + 1, b, 2)
-      result = iterator: Future[int] {.asyncIter.} =
+      result = asyncIter(iterator: Future[int] =
         yieldAsyncFrom evens
         yieldAsyncFrom odds
+      )
 
     var data: seq[int]
     runAsync:
@@ -105,9 +117,10 @@ proc main =
     check n == 8
 
   test "`awaitIter` can unpack a 1-element tuple":
-    iterator wrap5: Future[(int, )] {.asyncIter.} =
-      check not compiles yieldAsync 5
-      yieldAsync (5, )
+    asyncIter:
+      iterator wrap5: Future[(int, )] =
+        check not compiles yieldAsync 5
+        yieldAsync (5, )
 
     var n = 0
     runAsync:
@@ -131,13 +144,14 @@ proc main =
     check sum == 1 + 4 + 9
 
   test "can yield from a template declared inside an async iterator":
-    iterator produce1122: Future[int] {.asyncIter.} =
-      template yieldTwice(x: int) =
-        yieldAsync x
-        yieldAsync x
+    asyncIter:
+      iterator produce1122: Future[int] =
+        template yieldTwice(x: int) =
+          yieldAsync x
+          yieldAsync x
 
-      yieldTwice 1
-      yieldTwice 2
+        yieldTwice 1
+        yieldTwice 2
 
     var n = 0
     runAsync:
@@ -151,9 +165,10 @@ proc main =
       yieldAsync x
       yieldAsyncFrom countUpAsync(x, x)
 
-    iterator produce1122: Future[int] {.asyncIter.} =
-      yieldTwice 1
-      yieldTwice 2
+    asyncIter:
+      iterator produce1122: Future[int] =
+        yieldTwice 1
+        yieldTwice 2
 
     var n = 0
     runAsync:
@@ -163,16 +178,15 @@ proc main =
     check n == 4
 
   test "can redeclare `yieldAsync`":
-    iterator nop: Future[int] {.asyncIter.} =
-      template yieldAsync(x: typed) = discard
+    asyncIter:
+      iterator nop: Future[int] =
+        template yieldAsync(x: typed) = discard
 
-      yieldAsync 1
+        yieldAsync 1
 
-    var n = 0
     runAsync:
       for i in awaitIter nop:
-        n += 1
-    check n == 0
+        check false
 
   test "can continue from a template declared inside a loop":
     var n = 0
@@ -207,27 +221,33 @@ proc main =
     check sum == 1 + 2 + 3 + 100
 
   test "can return from a loop":
-    var sum = 0
-    runAsync:
-      for i in awaitIter countUpAsync(1, 10):
-        if (i and 0x3) == 0x0:
-          return # From `runAsync`.
-        sum += i
-      check false
-    check sum == 1 + 2 + 3
+    when chronosBackend:
+      skip # https://github.com/status-im/nim-chronos/issues/368
+    else:
+      var sum = 0
+      runAsync:
+        for i in awaitIter countUpAsync(1, 10):
+          if (i and 0x3) == 0x0:
+            return # From `runAsync`.
+          sum += i
+        check false
+      check sum == 1 + 2 + 3
 
   test "can return a value from a loop":
-    var sum = 0
+    when chronosBackend:
+      skip # https://github.com/status-im/nim-chronos/issues/368
+    else:
+      var sum = 0
 
-    proc run: Future[int] {.async.} =
-      for i in awaitIter countUpAsync(1, 10):
-        if (i and 0x3) == 0x0:
-          return 13
-        sum += i
-      check false
+      proc run: Future[int] {.async.} =
+        for i in awaitIter countUpAsync(1, 10):
+          if (i and 0x3) == 0x0:
+            return 13
+          sum += i
+        check false
 
-    check waitFor(run()) == 13
-    check sum == 1 + 2 + 3
+      check waitFor(run()) == 13
+      check sum == 1 + 2 + 3
 
   test "can access `result` inside a loop":
     var t = (result: 0)
@@ -254,16 +274,21 @@ proc main =
     var sum = 0
 
     proc run: Future[string] {.async.} =
-      for i in awaitIter countUpAsync(1, 10):
-        for j in i .. 10:
-          if j == 6:
-            break
-          elif i == 7 and j == 9:
-            return "ok"
-          sum += j
-          continue
-        sum += i * 100
-      check false
+      block procBody:
+        for i in awaitIter countUpAsync(1, 10):
+          for j in i .. 10:
+            if j == 6:
+              break
+            elif i == 7 and j == 9:
+              when chronosBackend:
+                result = "ok"
+                break procBody
+              else:
+                return "ok"
+            sum += j
+            continue
+          sum += i * 100
+        check false
 
     check waitFor(run()) == "ok"
     check sum == 2170
@@ -272,35 +297,43 @@ proc main =
     var sum = 0
 
     proc run: Future[string] {.async.} =
-      for i in awaitIter countUpAsync(1, 10):
-        for j in awaitIter countUpAsync(i, 10):
-          if j == 6:
-            break
-          elif i == 7 and j == 9:
-            return "ok"
-          sum += j
-          continue
-        sum += i * 100
-      check false
+      block procBody:
+        for i in awaitIter countUpAsync(1, 10):
+          for j in awaitIter countUpAsync(i, 10):
+            if j == 6:
+              break
+            elif i == 7 and j == 9:
+              when chronosBackend:
+                result = "ok"
+                break procBody
+              else:
+                return "ok"
+            sum += j
+            continue
+          sum += i * 100
+        check false
 
     check waitFor(run()) == "ok"
     check sum == 2170
 
   test "can return an implicit `result` from a nested loop":
-    var sum = 0
+    when chronosBackend:
+      skip # https://github.com/status-im/nim-chronos/issues/368
+    else:
+      var sum = 0
 
-    proc run: Future[string] {.async.} =
-      result = "ok"
-      for i in awaitIter countUpAsync(1, 10):
-        for j in awaitIter countUpAsync(i, 10):
-          if i == 3 and j == 5:
-            return
-          sum += j
-        sum += i * 100
-      check false
+      proc run: Future[string] {.async.} =
+        result = "ok"
+        for i in awaitIter countUpAsync(1, 10):
+          for j in awaitIter countUpAsync(i, 10):
+            if i == 3 and j == 5:
+              return
+            sum += j
+          sum += i * 100
+        check false
 
-    check waitFor(run()) == "ok"
-    check sum == 416
+      check waitFor(run()) == "ok"
+      check sum == 416
 
   test "can break from a named block":
     var sum = 0
@@ -366,7 +399,7 @@ proc main =
     # Usually, an `nnkForStmt` wraps an `nnkStmtList`. We have to write a macro to attach
     # an `nnkProcDef` directly.
     macro construct(iter: typed) =
-      result = quote do:
+      result = quote:
         for i in awaitIter `iter`:
           proc p: string {.used.} = return "unused" # `return` is essential for this test.
       result[2].expectKind nnkStmtList
@@ -383,7 +416,7 @@ proc main =
     # Usually, an `nnkBlockStmt` wraps an `nnkStmtList`. We have to write a macro to attach
     # an `nnkBreakStmt` directly.
     macro construct(n: int; iter: typed) =
-      result = quote do:
+      result = quote:
         for i in awaitIter `iter`:
           block blk:
             break blk
@@ -419,8 +452,9 @@ proc main =
     template async {.pragma.}
     template await(x: typed): untyped = x
 
-    iterator one: Identity[int] {.asyncIter.} =
-      yieldAsync 1
+    asyncIter:
+      iterator one: Identity[int] =
+        yieldAsync 1
 
     proc run(flag: bool): string =
       for i in awaitIter one:

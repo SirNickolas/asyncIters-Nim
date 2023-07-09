@@ -34,7 +34,7 @@ func transformIterDef(iterDef: NimNode): NimNode =
     let `bodySym`: proc (`itemSym`: `yieldType`): `returnType` {.gcSafe.}
   )[0]
   result.addPragma ident"async" # An open symbol to allow custom `async` implementations.
-  result[6] = quote do:
+  result[6] = quote:
     template yieldAsync(value: typed) {.used.} =
       if (let ret = await `bodySym` value; ret != 0'u32):
         return ret
@@ -68,17 +68,18 @@ macro asyncIter*(iterDef: untyped): untyped =
   when defined asyncIters_debugAsync:
     echo result.repr
 
+type Inaccessible = object
+
 # We must provide at least two overloads so that `yieldAsync` is treated as an open symbol
 # by default. Otherwise, users would have to `mixin yieldAsync` to access it from templates.
-template yieldAsync* {.error: "need a value to yield".} = discard
+template yieldAsync*(phantom: Inaccessible)
+  {.error: "congratulations, you've found a way to invoke me".} = discard
 
-macro yieldAsync*(firstValue: typed; values: varargs[typed]): untyped =
+macro yieldAsync*(values: varargs[typed]): untyped =
   ## Transfer control to the caller of the async iterator. If several values are passed, they
   ## are wrapped in a tuple.
 
-  if values.len == 0:
-    error "yieldAsync outside an async iterator", firstValue
-  let tup = nnkTupleConstr.newNimNode(firstValue).add(firstValue)
-  for arg in values:
-    tup.add arg
-  bindSym("yieldAsync", brOpen).newCall(tup)
+  case values.len:
+    of 0: error "need a value to yield", values
+    of 1: error "yieldAsync outside an async iterator", values
+    else: result = bindSym("yieldAsync", brOpen).newCall(values.morphInto nnkTupleConstr)
