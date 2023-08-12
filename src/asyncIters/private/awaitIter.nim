@@ -112,7 +112,7 @@ func newMagicReturn(ctx; val, prototype: NimNode): NimNode =
   # -> {.asyncLoopMagic: val.}: return asyncLoopMagicCode(val)
   ctx.wrapWithMagic(val, ctx.newBareMagicReturn(val, prototype))
 
-func maybeEnterNamedBlock(mctx; node: NimNode): string =
+proc maybeEnterNamedBlock(mctx; node: NimNode): string =
   ## If `node` is a named `block` statement or expression, remember it in the context and return
   ## the signature of its name. Otherwise, do nothing and return an empty string.
   if node.kind in {nnkBlockStmt, nnkBlockExpr}:
@@ -154,7 +154,7 @@ func maybeTransformMagicReturn(mctx; node: NimNode): bool =
         node[1] = mctx.newBareMagicReturn(pragma[1], prototype = node[1])
         return true
 
-func transformBreakStmt(mctx; brk: NimNode; interceptPlainBreak: bool): NimNode =
+proc transformBreakStmt(mctx; brk: NimNode; interceptPlainBreak: bool): NimNode =
   let blockName = brk[0]
   if blockName.kind != nnkEmpty:
     # A labeled `break`.
@@ -209,7 +209,7 @@ func transformReturnStmt(mctx; ret: NimNode): NimNode =
   ret[0] = mctx.magicCodeSym.newCall val
   result.add mctx.wrapWithMagic(val, ret)
 
-func transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool =
+proc transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool =
   ## Recursively traverse the loop body and transform it. Return `true` iff current node should
   ## not be processed further.
   if tree.kind in RoutineNodes - {nnkTemplateDef} or mctx.maybeTransformMagicReturn tree:
@@ -348,7 +348,7 @@ func createDeclarations(ctx): NimNode =
       # so we need `{.used.}`.
       template `resultSym`: untyped {.used.} = resultAddr[]
 
-func processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNode] =
+proc processBody(body: NimNode): tuple[decls, invoker, invocationWrapper: NimNode] =
   ##[
     Transform the loop body and generate code that runs it. Return a tuple:
     #. `decls` (`nnkStmtList`) are declarations that must be injected prior to the body definition;
