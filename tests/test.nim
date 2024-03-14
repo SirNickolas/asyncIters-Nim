@@ -2,6 +2,7 @@ import std/macros
 import std/unittest
 import asyncIters
 from   asyncIters/cfg as asyncCfg import nil
+from   ./uSelectiveImport import nil
 
 const chronosBackend = asyncCfg.backend == "chronos"
 
@@ -64,7 +65,6 @@ proc main =
 
   func countUpAsync(a, b: int; step = 1): auto =
     ## A simple iterator for tests. Like `countUp`, but pretends to be asynchronous.
-
     result = asyncIter(iterator: Future[int] =
       for i in countUp(a, b, step):
         yieldAsync i

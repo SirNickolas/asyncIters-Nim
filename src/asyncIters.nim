@@ -65,7 +65,8 @@ else:
 when declared Future:
   when (NimMajor, NimMinor) >= (1, 9):
     {.warning[AmbiguousLink]: off.} # `customAsyncIterator`
-  type AsyncIterator*[T] = customAsyncIterator(T, Future)
+  template the(x): untyped = x # https://github.com/SirNickolas/asyncIters-Nim/issues/1
+  type AsyncIterator*[T] = the customAsyncIterator(T, Future)
     ##[
       Type of async iterators after they are processed.
 
@@ -80,6 +81,6 @@ when declared Future:
 
       .. _asyncdispatch: https://nim-lang.org/docs/asyncdispatch.html
       .. _chronos: https://github.com/status-im/nim-chronos
-      .. _customAsyncIterator: #customAsyncIterator.t,type,typed
+      .. _customAsyncIterator: #customAsyncIterator.t,typed,typed
       .. _Future: https://nim-lang.org/docs/asyncfutures.html
     ]##
