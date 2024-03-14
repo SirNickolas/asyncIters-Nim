@@ -72,7 +72,8 @@ type Inaccessible = object
 template yieldAsync*(phantom: Inaccessible)
   {.error: "congratulations, you've found a way to invoke me".} = discard
 
-macro yieldAsync*(values: varargs[typed]): untyped =
+macro yieldAsync*(values: varargs[typed]): untyped
+    {.deprecated: "enclose multiple values in parentheses to yield them as a tuple".} =
   ## Transfer control to the caller of the async iterator. If several values are passed, they
   ## are wrapped in a tuple.
   case values.len:

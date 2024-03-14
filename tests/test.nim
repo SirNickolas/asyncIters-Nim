@@ -88,11 +88,9 @@ proc main =
   test "`awaitIter` can unpack simple tuples":
     asyncIter:
       iterator indexedStrings: Future[(int, string)] =
-        yieldAsync 1, "test"
         yieldAsync (1, "test")
 
       iterator indexedPositions: Future[(int, string, tuple[x, y: float])] =
-        yieldAsync 1, "here", (2.0, 4.0)
         yieldAsync (1, "here", (2.0, 4.0))
 
     var n = 0
@@ -114,7 +112,7 @@ proc main =
         check x == 2.0
         check y == 4.0
         n += 1
-    check n == 8
+    check n == 4
 
   test "`awaitIter` can unpack a 1-element tuple":
     asyncIter:
