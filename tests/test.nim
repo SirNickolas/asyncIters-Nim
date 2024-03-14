@@ -16,7 +16,7 @@ template runAsync(body: untyped) =
 
 proc main =
   test "can declare an async iterator":
-    when not chronosBackend: # https://github.com/status-im/nim-chronos/issues/367
+    when NimMajor >= 2 or not chronosBackend: # https://github.com/status-im/nim-chronos/issues/367
       iterator named0: Future[int] {.asyncIter, used.} = discard
       iterator named1(): Future[int] {.used, asyncIter.} = discard
       # Anonymous iterators (and procedures) produce unhelpful stack traces. But they are supported

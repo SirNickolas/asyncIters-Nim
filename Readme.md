@@ -29,7 +29,7 @@ error handling.”
 
 `yieldAsyncFrom` allows to delegate iteration to another async iterator. It is semantically
 equivalent to  
-`for x in awaitIter another: yieldAsync x` but is more efficient:
+`for x in awaitIter another: yieldAsync x` but is more efficient. Example:
 
 ```nim
 func countUpAsync(a, b: int; step = 1): auto =
@@ -65,35 +65,38 @@ in mind.
 
 ## Using with `chronos/asyncloop`
 
-This library is mainly compatible with [Chronos][], with two exceptions.
+This library is mainly compatible with [Chronos][], with a single exception. You cannot `return`
+from an `awaitIter` loop — it produces a compilation error. As a workaround, consider assigning
+to `result` and `break`ing from the loop. (Hint: you can wrap the whole body of your procedure
+in a [labeled][block-stmt] `block` statement and break out of it.)
 
-1.  You cannot use the pragma syntax with `asyncIter`:
+Upstream issue: [status-im/nim-chronos#368][].
 
-    ```nim
-    # These don't work.
-    iterator myIter: Future[int] {.asyncIter.} =
-      discard
+And if you are using Chronos with Nim **1.x**, there’s one more gotcha to be aware of:
 
-    let myAnonIter = iterator: Future[int] {.asyncIter.} =
-      discard
+<details>
+You cannot use the pragma syntax with `asyncIter`.
 
-    # Use these instead:
-    asyncIter:
-      iterator myIter: Future[int] =
-        discard
+```nim
+# These don't work.
+iterator myIter: Future[int] {.asyncIter.} =
+  discard
 
-    let myAnonIter = asyncIter(iterator: Future[int] =
-      discard
-    )
-    ```
+let myAnonIter = iterator: Future[int] {.asyncIter.} =
+  discard
 
-    Upstream issue: [status-im/nim-chronos#367][].
+# Use these instead:
+asyncIter:
+  iterator myIter: Future[int] =
+    discard
 
-2.  You cannot `return` from an `awaitIter` loop — it produces a compilation error. As a workaround,
-    consider assigning to `result` and `break`ing from the loop. (Hint: you can wrap the whole body
-    of your procedure in a [labeled][block-stmt] `block` statement and break out of it.)
+let myAnonIter = asyncIter(iterator: Future[int] =
+  discard
+)
+```
 
-    Upstream issue: [status-im/nim-chronos#368][].
+That was a compiler bug: [status-im/nim-chronos#367][].
+</details>
 
 [Chronos]: https://github.com/status-im/nim-chronos
 [status-im/nim-chronos#367]: https://github.com/status-im/nim-chronos/issues/367
