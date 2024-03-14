@@ -1,4 +1,4 @@
-version     = "1.2.5"
+version     = "1.3.0"
 author      = "Nickolay Bukreyev"
 description = "Async iterators. Able to both await futures and yield values"
 license     = "MIT"
