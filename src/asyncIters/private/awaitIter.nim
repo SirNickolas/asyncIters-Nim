@@ -4,15 +4,15 @@ import std/tables
 from   letUtils import asLet, asVar
 from   ./utils import copyLineInfoTo, morphInto
 
-type SomeAsyncIterator[T; F] = proc (body: proc (item: T): F {.gcSafe.}): F {.gcSafe.}
+type SomeAsyncIterator[T; F] = proc (body: proc (item: T): F {.gcsafe.}): F {.gcsafe.}
 
-template customAsyncIterator*(T, fut: typed): type =
+template customAsyncIterator*(t, fut: typed): type =
   ##[
-    Type of async iterators after they are processed. `T` is the type of values an iterator yields;
+    Type of async iterators after they are processed. `t` is the type of values an iterator yields;
     `fut` is the future type constructor those values are wrapped with. The only requirement
     is that `fut` must be instantiable with one generic parameter (i.e., `fut[U]`).
   ]##
-  SomeAsyncIterator[T, fut[uint32]]
+  SomeAsyncIterator[t, fut[uint32]]
 
 func safeSignature(node: NimNode): string =
   ## Return a string that uniquely identifies the node (which must be either `nnkIdent`
@@ -218,7 +218,7 @@ proc transformBody(mctx; tree: NimNode; interceptBreakContinue: bool): bool =
     # We should stop intercepting `break` and `continue` when descending into the last child
     # of a nested loop. `block` statements are not treated specially since unlabeled `break`
     # inside a `block` is deprecated and will change its meaning to what we already do now.
-    let loopBodyIndex = if tree.kind not_in {nnkForStmt, nnkWhileStmt}: -1 else: tree.len - 1
+    let loopBodyIndex = if tree.kind notin {nnkForStmt, nnkWhileStmt}: -1 else: tree.len - 1
     for i, node in tree:
       # Recurse.
       if not mctx.transformBody(node, interceptBreakContinue and i != loopBodyIndex):

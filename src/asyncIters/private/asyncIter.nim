@@ -29,7 +29,7 @@ func transformIterDef(iterDef: NimNode): NimNode =
 
   result = iterDef.morphInto nnkProcDef
   params.add (quote do:
-    let `bodySym`: proc (`itemSym`: `yieldType`): `returnType` {.gcSafe.}
+    let `bodySym`: proc (`itemSym`: `yieldType`): `returnType` {.gcsafe.}
   )[0]
   result.addPragma ident"async" # An open symbol to allow custom `async` implementations.
   result[6] = quote:
