@@ -3,7 +3,7 @@
 name: Process Nim
 on:
   push:
-    branches: [master]
+    branches: [master] # TODO: Only restrict to `master` for docs.
     paths:
     - .github/workflows/**
     - '*.nimble'
@@ -15,7 +15,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: nim
+  group: nim # TODO: ci-${{ github.ref }} | docs
   cancel-in-progress: true
 defaults:
   run:
@@ -32,7 +32,7 @@ jobs:
     steps:
     - name: Cache Nim toolchain
       id: nim-cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         key: ${{ runner.os }}-${{ runner.arch }}-Nim-${{ matrix.nim-version }}
         path: |-
@@ -48,10 +48,10 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Adjust PATH
-      run: echo ~/.nimble/bin >> "$GITHUB_PATH"
+      run: echo ~/.nimble/bin >>"$GITHUB_PATH"
 
     - name: Check out the project
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Run tests
       run: >-
@@ -71,11 +71,11 @@ jobs:
 
     - name: Set up Pages
       if: matrix.nim-version == 'stable'
-      uses: actions/configure-pages@v3
+      uses: actions/configure-pages@v5
 
     - name: Upload API docs
       if: matrix.nim-version == 'stable'
-      uses: actions/upload-pages-artifact@v1
+      uses: actions/upload-pages-artifact@v3
       with:
         path: htmldocs/
 
@@ -93,4 +93,4 @@ jobs:
     steps:
     - name: Deploy Pages
       id: deployment
-      uses: actions/deploy-pages@v1
+      uses: actions/deploy-pages@v4
