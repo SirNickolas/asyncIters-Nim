@@ -64,19 +64,3 @@ macro asyncIter*(iterDef: untyped): untyped =
   result = iterDef.transformIterList
   when defined asyncIters_debugAsync:
     echo result.repr
-
-type Inaccessible = object
-
-# We must provide at least two overloads so that `yieldAsync` is treated as an open symbol
-# by default. Otherwise, users would have to `mixin yieldAsync` to access it from templates.
-template yieldAsync*(phantom: Inaccessible)
-  {.error: "congratulations, you've found a way to invoke me".} = discard
-
-macro yieldAsync*(values: varargs[typed]): untyped
-    {.deprecated: "enclose multiple values in parentheses to yield them as a tuple".} =
-  ## Transfer control to the caller of the async iterator. If several values are passed, they
-  ## are wrapped in a tuple.
-  case values.len:
-    of 0: error "need a value to yield", values
-    of 1: error "yieldAsync outside an async iterator", values
-    else: result = bindSym("yieldAsync", brOpen).newCall(values.morphInto nnkTupleConstr)
