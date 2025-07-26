@@ -65,12 +65,15 @@ in mind.
 
 ## Using with `chronos/asyncloop`
 
-This library is mainly compatible with [Chronos][], with a single exception. You cannot `return`
+This library is mostly compatible with [Chronos][], with a single exception. You cannot `return`
 from an `awaitIter` loop — it produces a compilation error. As a workaround, consider assigning
 to `result` and `break`ing from the loop. (Hint: you can wrap the whole body of your procedure
 in a [labeled][block-stmt] `block` statement and break out of it.)
 
 Upstream issue: [status-im/nim-chronos#368][].
+
+For Chronos **4.x**, you need to pass `-d=chronosHandleException` flag to the compiler. It is
+a temporary workaround; this will be dealt with in a future version of `asyncIters`.
 
 And if you are using Chronos with Nim **1.x**, there’s one more gotcha to be aware of:
 

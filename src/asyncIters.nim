@@ -43,9 +43,13 @@ elif backend == "chronos":
   # Export the bare minimum necessary to compile async procedures with older `chronos` versions,
   # plus the shiny new `chronos/futures` API if it is available.
   export Future, chr.FutureBase, chr.async, chr.complete, chr.newFuture
+  exportWhenDeclared chr.AsyncExceptionError
   exportWhenDeclared chr.await
+  exportWhenDeclared chr.cancelAndSchedule
+  exportWhenDeclared chr.fail
   exportWhenDeclared chr.futureContinue
   exportWhenDeclared chr.internalCheckComplete
+  exportWhenDeclared chr.internalRaiseIfError
   exportWhenDeclared chr.internalRead
   exportWhenDeclared chr.futures # https://github.com/status-im/nim-chronos/pull/405
 
