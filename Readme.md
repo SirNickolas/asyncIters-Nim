@@ -172,6 +172,10 @@ block blk:
       break blk
 ```
 
+If you are curious, the idea of this transformation originates from the [D language][op-apply].
+
+[op-apply]: https://dlang.org/spec/statement.html#foreach_over_struct_and_classes
+
 
 ## Limitations
 
