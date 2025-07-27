@@ -63,18 +63,18 @@ jobs:
         --hint[MsgOrigin]=off
 
     - name: Generate API docs
-      if: matrix.nim-version == 'stable'
+      if: matrix.nim-version == '2.2.0'
       run: >-
         nimble doc src/asyncIters.nim
         --git.url="${{ github.server_url }}/${{ github.repository }}"
         --git.commit="${{ github.ref_name }}"
 
     - name: Set up Pages
-      if: matrix.nim-version == 'stable'
+      if: matrix.nim-version == '2.2.0'
       uses: actions/configure-pages@v5
 
     - name: Upload API docs
-      if: matrix.nim-version == 'stable'
+      if: matrix.nim-version == '2.2.0'
       uses: actions/upload-pages-artifact@v3
       with:
         path: htmldocs/
